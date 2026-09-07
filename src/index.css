@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+  --color-fashion-bg: #ede6da;
+  --color-fashion-primary: #a78361;
+  --color-fashion-brown: #977150;
+  --color-fashion-dark: #432817;
+  --color-fashion-beige: #d1b79e;
+  --color-fashion-gold: #ce9c6e;
+  --color-fashion-muted: #7e7e86;
+}
