@@ -1,5 +1,3 @@
-// src/components/auth/LoginForm.jsx
-
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
@@ -8,12 +6,22 @@ export default function LoginForm() {
   const { user, loginWithGoogle, isLoading } = useAuth();
   const navigate = useNavigate();
 
-  // Already logged in → Home
+  // Already logged in → Home page par redirect karein
   useEffect(() => {
     if (!isLoading && user) {
       navigate("/", { replace: true });
     }
   }, [user, isLoading, navigate]);
+
+  // Handle Dynamic Google Auth Redirection
+  const handleGoogleLogin = () => {
+    if (typeof loginWithGoogle === "function") {
+      loginWithGoogle();
+    } else {
+      // Fallback direct redirection to Cloudflare Worker OAuth endpoint
+      window.location.href = `${window.location.origin}/auth/google`;
+    }
+  };
 
   // Loading screen
   if (isLoading) {
@@ -21,7 +29,6 @@ export default function LoginForm() {
       <div className="flex min-h-screen items-center justify-center bg-[#EDE6DA]">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#432817] border-t-transparent" />
-
           <p className="text-xs tracking-[0.25em] text-[#7E7E86] uppercase">
             Loading
           </p>
@@ -38,7 +45,6 @@ export default function LoginForm() {
             LEFT — FASHION IMAGE
         ====================================================== */}
         <section className="relative hidden min-h-screen overflow-hidden lg:block">
-
           {/* Online fashion image */}
           <img
             src="https://images.unsplash.com/photo-1772714601004-23b94ae3913d?auto=format&fit=crop&fm=jpg&q=85&w=1600"
@@ -52,6 +58,7 @@ export default function LoginForm() {
           {/* Top logo */}
           <div className="absolute left-10 top-9 z-10">
             <button
+              type="button"
               onClick={() => navigate("/")}
               className="font-serif text-2xl tracking-[0.18em] text-white"
             >
@@ -61,7 +68,6 @@ export default function LoginForm() {
 
           {/* Editorial text */}
           <div className="absolute bottom-10 left-10 right-10 z-10 text-white">
-
             <p className="mb-4 text-[10px] font-medium tracking-[0.4em] uppercase">
               New Season · 2026
             </p>
@@ -76,7 +82,6 @@ export default function LoginForm() {
 
             <div className="mt-7 flex items-center gap-4">
               <span className="h-px w-12 bg-white/70" />
-
               <p className="text-xs tracking-[0.18em] uppercase">
                 Discover your style
               </p>
@@ -92,6 +97,7 @@ export default function LoginForm() {
           {/* Mobile Header */}
           <header className="flex items-center justify-between px-6 py-7 lg:hidden">
             <button
+              type="button"
               onClick={() => navigate("/")}
               className="font-serif text-xl tracking-[0.16em]"
             >
@@ -105,13 +111,11 @@ export default function LoginForm() {
 
           {/* Main content */}
           <div className="flex flex-1 items-center justify-center px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
-
             <div className="w-full max-w-md">
 
               {/* Small label */}
               <div className="mb-7 flex items-center gap-3">
                 <span className="h-px w-8 bg-[#977150]" />
-
                 <span className="text-[10px] font-medium tracking-[0.3em] text-[#977150] uppercase">
                   Welcome back
                 </span>
@@ -134,7 +138,7 @@ export default function LoginForm() {
               {/* Google Button */}
               <button
                 type="button"
-                onClick={loginWithGoogle}
+                onClick={handleGoogleLogin}
                 className="group flex w-full items-center justify-center gap-4 border border-[#A78361] bg-transparent px-6 py-4 text-sm font-medium tracking-[0.08em] text-[#432817] transition-all duration-300 hover:bg-[#432817] hover:text-[#EDE6DA]"
               >
                 {/* Google Icon */}
@@ -150,17 +154,14 @@ export default function LoginForm() {
                     d="M21.805 12.23c0-.79-.064-1.57-.203-2.31H12v4.37h5.5a4.7 4.7 0 0 1-2.04 3.09v2.57h3.3c1.93-1.78 3.045-4.4 3.045-7.72Z"
                     fill="#4285F4"
                   />
-
                   <path
                     d="M12 22c2.755 0 5.063-.91 6.75-2.46l-3.3-2.57c-.916.61-2.087.98-3.45.98-2.655 0-4.91-1.795-5.717-4.21H2.87v2.65A10.195 10.195 0 0 0 12 22Z"
                     fill="#34A853"
                   />
-
                   <path
                     d="M6.283 13.74A6.12 6.12 0 0 1 5.96 12c0-.605.106-1.19.323-1.74V7.61H2.87A10 10 0 0 0 1.805 12c0 1.61.386 3.13 1.065 4.39l3.413-2.65Z"
                     fill="#FBBC05"
                   />
-
                   <path
                     d="M12 6.05c1.5 0 2.845.516 3.905 1.527l2.93-2.93C17.058 2.99 14.75 2 12 2a10.195 10.195 0 0 0-9.13 5.61l3.413 2.65C7.09 7.845 9.345 6.05 12 6.05Z"
                     fill="#EA4335"
@@ -173,18 +174,15 @@ export default function LoginForm() {
               {/* Alternative divider */}
               <div className="my-8 flex items-center gap-4">
                 <div className="h-px flex-1 bg-[#D1B79E]/60" />
-
                 <span className="text-[9px] tracking-[0.25em] text-[#7E7E86] uppercase">
                   Secure access
                 </span>
-
                 <div className="h-px flex-1 bg-[#D1B79E]/60" />
               </div>
 
               {/* Security message */}
               <div className="border border-[#D1B79E]/50 bg-[#EDE6DA]/50 px-5 py-4">
                 <div className="flex gap-3">
-
                   <svg
                     width="17"
                     height="17"
@@ -197,7 +195,6 @@ export default function LoginForm() {
                       stroke="currentColor"
                       strokeWidth="1.4"
                     />
-
                     <path
                       d="m9 12 2 2 4-4"
                       stroke="currentColor"
@@ -216,14 +213,13 @@ export default function LoginForm() {
 
               {/* Footer */}
               <div className="mt-10 text-center">
-
                 <p className="text-xs text-[#7E7E86]">
                   New to AURELIA?
                 </p>
 
                 <button
                   type="button"
-                  onClick={() => navigate("/register")}
+                  onClick={handleGoogleLogin}
                   className="mt-2 text-xs font-medium tracking-[0.15em] text-[#432817] uppercase underline decoration-[#A78361] underline-offset-4 transition hover:text-[#977150]"
                 >
                   Create an account

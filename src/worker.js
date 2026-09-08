@@ -2,12 +2,16 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    // Current host origin dynamically catch karein (Works for both Localhost & Cloudflare Worker URL)
+    const currentOrigin = url.origin;
+    const redirectUri = `${currentOrigin}/auth/callback`;
+
     // 1. Google Login Route
     if (url.pathname === '/auth/google') {
       const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + 
         new URLSearchParams({
           client_id: env.GOOGLE_CLIENT_ID,
-          redirect_uri: 'https://ecommerce-website.adeebibrahim01.workers.dev/auth/callback',
+          redirect_uri: redirectUri,
           response_type: 'code',
           scope: 'openid email profile',
           access_type: 'offline',
@@ -33,7 +37,7 @@ export default {
           code,
           client_id: env.GOOGLE_CLIENT_ID,
           client_secret: env.GOOGLE_CLIENT_SECRET,
-          redirect_uri: 'https://ecommerce-website.adeebibrahim01.workers.dev/auth/callback',
+          redirect_uri: redirectUri,
           grant_type: 'authorization_code',
         }),
       });
@@ -51,16 +55,20 @@ export default {
 
       const userData = await userResponse.json();
 
-      // REDIRECT TO REACT FRONTEND (Localhost ya Production URL)
-      // Base64 encode user data to pass via URL
+      // Encode user data
       const userEncoded = encodeURIComponent(JSON.stringify(userData));
-      
-      // Local dev ke liye localhost:5173 use karein, production ke liye apna domain
-      const frontendRedirectUrl = `http://localhost:5173/login-success?user=${userEncoded}`;
+
+      // Dynamic redirect to frontend /login-success route
+      const frontendRedirectUrl = `${currentOrigin}/login-success?user=${userEncoded}`;
 
       return Response.redirect(frontendRedirectUrl, 302);
     }
 
-    return new Response('Worker Active!');
+    // 3. Serve Frontend Static Assets (React App Pages)
+    if (env.ASSETS) {
+      return env.ASSETS.fetch(request);
+    }
+
+    return new Response('Worker Active!', { status: 200 });
   },
 };
