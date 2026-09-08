@@ -1,7 +1,10 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+
   "name": "ecommerce-website",
+
   "main": "src/worker.js",
+
   "compatibility_date": "2026-09-08",
 
   "d1_databases": [
@@ -10,5 +13,20 @@
       "database_name": "aurelia-db",
       "database_id": "06206881-6a36-494b-aacc-72d1aa2fabb8"
     }
-  ]
+  ],
+
+  "env": {
+    "cart": {
+      "name": "aurelia-cart-worker",
+      "main": "src/cart-worker.js",
+
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aurelia-db",
+          "database_id": "06206881-6a36-494b-aacc-72d1aa2fabb8"
+        }
+      ]
+    }
+  }
 }

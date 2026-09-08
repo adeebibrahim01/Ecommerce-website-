@@ -1,7 +1,7 @@
 import Navbar from "../components/home/Navbar";
 import Hero from "../components/home/Hero";
 import Categories from "../components/home/Categories";
-import ProductCard from "../components/home/ProductCard";
+import ProductCard from "../components/shop/ProductCard";
 import Footer from "../components/home/Footer";
 
 const products = [
