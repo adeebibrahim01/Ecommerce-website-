@@ -12,15 +12,9 @@ export default function LoginForm() {
       navigate("/", { replace: true });
     }
   }, [user, isLoading, navigate]);
-
-  // Handle Dynamic Google Auth Redirection
   const handleGoogleLogin = () => {
-    if (typeof loginWithGoogle === "function") {
-      loginWithGoogle();
-    } else {
-      // Fallback direct redirection to Cloudflare Worker OAuth endpoint
-      window.location.href = `${window.location.origin}/auth/google`;
-    }
+    window.location.href =
+      "https://ecommerce-website.adeebibrahim01.workers.dev/auth/google";
   };
 
   // Loading screen
