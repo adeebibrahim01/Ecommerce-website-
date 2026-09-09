@@ -7,11 +7,13 @@ export default function LoginForm() {
   const navigate = useNavigate();
 
   // Redirect to home `/` seamlessly if authenticated
+  const userId = user?.id || user?._id || user?.email; // Stable primitive identifier
+
   useEffect(() => {
     if (!isLoading && user) {
       navigate("/", { replace: true });
     }
-  }, [user, isLoading, navigate]);
+  }, [userId, isLoading, navigate]);
 
   // Direct Redirection Fallback Handler
   const handleGoogleLogin = (e) => {

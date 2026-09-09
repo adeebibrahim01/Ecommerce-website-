@@ -6,10 +6,26 @@ import menProducts from "../data/men";
 import ProductCard from "../components/shop/ProductCard";
 import ProductFilters from "../components/shop/ProductFilters";
 import ProductSort from "../components/shop/ProductSort";
+import { useCart } from "../hooks/useCart"; // 1. Hook import karein
 
-export default function ProductGrid({ category }) {
+export default function ProductGrid({ category, userId }) { // userId prop accept karein
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("featured");
+
+  // 2. Cart Hook initialize karein
+  const { addToCart, isLoading: isCartLoading } = useCart(userId);
+
+  // Add to cart handler
+  const handleAddToCart = async (productId) => {
+    if (!userId) {
+      alert("Please log in to add items to cart.");
+      return;
+    }
+    const success = await addToCart(productId, 1);
+    if (success) {
+      // Toast notification or success indicator added here
+    }
+  };
 
   const filteredAndSortedProducts = useMemo(() => {
     let result = [...menProducts];
@@ -23,7 +39,6 @@ export default function ProductGrid({ category }) {
     }
 
     // Filter category from men.js
-    // All | Clothing | Outerwear | Tops | Bottoms | Shoes
     if (selectedCategory !== "All") {
       result = result.filter(
         (product) =>
@@ -38,7 +53,6 @@ export default function ProductGrid({ category }) {
         result.sort((a, b) => {
           const dateA = new Date(a.createdAt || 0);
           const dateB = new Date(b.createdAt || 0);
-
           return dateB - dateA;
         });
         break;
@@ -74,13 +88,10 @@ export default function ProductGrid({ category }) {
       {/* Soft background atmosphere */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/25 to-transparent" />
 
-      {/* ================================
-          FILTER / CONTROL AREA
-      ================================= */}
+      {/* FILTER / CONTROL AREA */}
       <div className="relative border-y border-[#D8CFC2]/80 bg-[#EDE6DA]/95 backdrop-blur-xl">
         <div className="mx-auto max-w-[1600px] px-4 sm:px-8 lg:px-12 xl:px-16">
           <div className="flex min-h-[76px] items-center justify-between gap-6">
-            {/* Left side */}
             <div className="flex min-w-0 items-center gap-4">
               <div className="hidden shrink-0 items-center gap-2.5 sm:flex">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#CFC4B5] bg-white/30">
@@ -98,7 +109,6 @@ export default function ProductGrid({ category }) {
 
               <div className="hidden h-7 w-px bg-[#CFC4B5] sm:block" />
 
-              {/* Filter component */}
               <div className="min-w-0">
                 <ProductFilters
                   selectedCategory={selectedCategory}
@@ -107,7 +117,6 @@ export default function ProductGrid({ category }) {
               </div>
             </div>
 
-            {/* Right side count */}
             <div className="hidden shrink-0 items-center gap-3 md:flex">
               <span className="text-[10px] tracking-[0.16em] text-[#8A8177] uppercase">
                 Collection
@@ -121,13 +130,10 @@ export default function ProductGrid({ category }) {
         </div>
       </div>
 
-      {/* ================================
-          SORT / RESULT BAR
-      ================================= */}
+      {/* SORT / RESULT BAR */}
       <div className="relative">
         <div className="mx-auto max-w-[1600px] px-4 sm:px-8 lg:px-12 xl:px-16">
           <div className="flex min-h-[68px] items-center justify-between gap-4 border-b border-[#D8CFC2]/60">
-            {/* Results */}
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium text-[#432817]">
                 {filteredAndSortedProducts.length}
@@ -140,7 +146,6 @@ export default function ProductGrid({ category }) {
               </span>
             </div>
 
-            {/* Sort */}
             <div className="flex items-center gap-2">
               <span className="hidden text-[10px] tracking-[0.14em] text-[#8A8177] uppercase sm:block">
                 Sort by
@@ -164,13 +169,10 @@ export default function ProductGrid({ category }) {
         </div>
       </div>
 
-      {/* ================================
-          PRODUCTS
-      ================================= */}
+      {/* PRODUCTS */}
       <div className="relative mx-auto max-w-[1600px] px-4 py-10 sm:px-8 sm:py-12 lg:px-12 lg:py-16 xl:px-16">
         {filteredAndSortedProducts.length > 0 ? (
           <>
-            {/* Collection heading */}
             <div className="mb-9 flex items-end justify-between gap-6 lg:mb-12">
               <div>
                 <p className="mb-2 text-[9px] font-semibold tracking-[0.24em] text-[#8A8177] uppercase">
@@ -187,13 +189,13 @@ export default function ProductGrid({ category }) {
               <div className="hidden h-px flex-1 bg-[#D8CFC2] sm:block" />
             </div>
 
-            {/* Modern product grid */}
             <div className="grid grid-cols-2 gap-x-3 gap-y-10 sm:gap-x-5 sm:gap-y-12 lg:grid-cols-3 lg:gap-x-6 lg:gap-y-16 xl:grid-cols-4 xl:gap-x-7">
               {filteredAndSortedProducts.map((product) => (
                 <div
                   key={product.id}
                   className="group min-w-0"
                 >
+                  {/* 3. ProductCard me onAddToCart handler pass karein */}
                   <ProductCard
                     id={product.id}
                     name={product.name}
@@ -201,18 +203,16 @@ export default function ProductGrid({ category }) {
                     image={product.image}
                     category={product.type}
                     badge={product.badge}
+                    onAddToCart={() => handleAddToCart(product.id)}
+                    isCartLoading={isCartLoading}
                   />
                 </div>
               ))}
             </div>
           </>
         ) : (
-          /* ================================
-             EMPTY STATE
-          ================================= */
           <div className="flex min-h-[460px] items-center justify-center">
             <div className="relative w-full max-w-xl overflow-hidden rounded-[2rem] border border-[#D8CFC2] bg-white/25 px-6 py-16 text-center shadow-[0_20px_60px_rgba(67,40,23,0.04)] backdrop-blur-sm sm:px-12">
-              {/* Decorative circle */}
               <div className="mx-auto mb-7 flex h-16 w-16 items-center justify-center rounded-full border border-[#CFC4B5] bg-[#EDE6DA]">
                 <SlidersHorizontal
                   size={20}

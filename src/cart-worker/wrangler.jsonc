@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cart-worker-service",
+  "main": "cart-worker.js",
+  "compatibility_date": "2026-09-09",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aurelia-db",
+      "database_id": "06206881-6a36-494b-aacc-72d1aa2fabb8"
+    }
+  ]
+}
