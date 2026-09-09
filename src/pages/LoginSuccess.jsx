@@ -44,17 +44,9 @@ export default function LoginSuccess() {
           "user",
           JSON.stringify(normalizedUser)
         );
-
-        // Notify useAuth and Navbar in the current tab
         window.dispatchEvent(new Event("auth-change"));
 
-        // Remove user data from the browser URL
-        window.history.replaceState(
-          {},
-          document.title,
-          "/login-success"
-        );
-
+        window.location.replace("/");
         // Redirect to home
         navigate("/", { replace: true });
       } catch (error) {
