@@ -13,40 +13,44 @@ app.use('/*', cors({
 app.get('/', (c) => c.text('Cart Worker is live!'));
 app.post('/cart/add', async (c) => {
   try {
-    const body = await c.req.json();
-    const { userId, productId, quantity, name, price, image } = body;
+    const { userId, productId, quantity, name, price, image } = await c.req.json();
 
     if (!userId || !productId) {
-      return c.json({ success: false, error: "userId aur productId zaroori hain!" }, 400);
+      return c.json({ success: false, error: "UserId and ProductId are required!" }, 400);
     }
 
-    const qty = quantity || 1;
+    const qty = Number(quantity) > 0 ? Number(quantity) : 1;
+    const productPrice = Number(price) || 0;
+    const productImage = image || "";
     const db = c.env.DB;
 
-    // Check existing item
-    const existing = await db.prepare(
-      "SELECT * FROM cart WHERE user_id = ? AND product_id = ?"
-    ).bind(userId, productId).first();
+    // Database mein product insert ya quantity update karein
+    await db.prepare(`
+      INSERT INTO cart (user_id, product_id, quantity, name, price, image) 
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, product_id) 
+      DO UPDATE SET 
+        quantity = cart.quantity + excluded.quantity,
+        name = excluded.name,
+        price = excluded.price,
+        image = excluded.image
+    `).bind(String(userId), String(productId), qty, name || "", productPrice, productImage).run();
 
-    if (existing) {
-      await db.prepare(
-        "UPDATE cart SET quantity = quantity + ?, name = COALESCE(?, name), price = COALESCE(?, price), image = COALESCE(?, image) WHERE user_id = ? AND product_id = ?"
-      ).bind(qty, name || null, price || null, image || null, userId, productId).run();
-    } else {
-      await db.prepare(
-        "INSERT INTO cart (user_id, product_id, quantity, name, price, image) VALUES (?, ?, ?, ?, ?, ?)"
-      ).bind(
-        userId, 
-        productId, 
-        qty, 
-        name || "Classic Fashion Item", 
-        price || 129, 
-        image || ""
-      ).run();
-    }
+    // Updated cart items fetch karein
+    const { results } = await db.prepare(`
+      SELECT product_id, quantity, user_id, name, price, image 
+      FROM cart 
+      WHERE user_id = ?
+    `).bind(String(userId)).all();
 
-    return c.json({ success: true, message: "Cart me data save ho gaya!" });
+    return c.json({ 
+      success: true, 
+      message: "Cart successfully updated!", 
+      items: results || [] 
+    });
+
   } catch (error) {
+    console.error("Error in /cart/add:", error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });

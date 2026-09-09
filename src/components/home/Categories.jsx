@@ -1,22 +1,39 @@
+import { useNavigate } from "react-router-dom";
+
 const categories = [
   {
     name: "Women",
+    path: "/women",
     image:
       "https://images.unsplash.com/photo-1485968579580-b6d095142e6e?auto=format&fit=crop&w=900&q=85",
   },
   {
     name: "Men",
+    path: "/men",
     image:
       "https://images.unsplash.com/photo-1617137968427-85924c800a22?auto=format&fit=crop&w=900&q=85",
   },
   {
     name: "Accessories",
+    path: "/accessories",
     image:
       "https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?auto=format&fit=crop&w=900&q=85",
   },
 ];
 
 export default function Categories() {
+  const navigate = useNavigate();
+
+  const handleCategoryClick = (categoryName, categoryPath) => {
+    // Agar path defined hai toh navigate karein
+    if (categoryPath) {
+      navigate(categoryPath);
+    } else {
+      // Fallback agar lowercase karke bhejna ho
+      navigate(`/${categoryName.toLowerCase()}`);
+    }
+  };
+
   return (
     <section className="px-5 py-20 sm:px-8 md:px-12 lg:px-16">
       <div className="mx-auto max-w-7xl">
@@ -36,7 +53,8 @@ export default function Categories() {
           {categories.map((category) => (
             <button
               key={category.name}
-              className="group relative h-[420px] overflow-hidden text-left"
+              onClick={() => handleCategoryClick(category.name, category.path)}
+              className="group relative h-[420px] overflow-hidden text-left cursor-pointer"
             >
               <img
                 src={category.image}

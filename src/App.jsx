@@ -5,25 +5,29 @@ import Footer from "./components/home/Footer";
 
 import LoginForm from "./components/auth/LoginForm";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import { useAuth } from "./hooks/useAuth"; // Auth hook import kiya agar user id chahiye ho
 
 import Home from "./pages/Home";
 import Men from "./pages/Men";
 import Women from "./pages/Women";
+import CartPage from "./pages/cartpage";
+import ProductDetail from "./pages/ProductDetail"; // Aapka detail page component
 import LoginSuccess from "./pages/LoginSuccess";
-
+import Signup from "./pages/Signup";
 function MainLayout({ children }) {
   return (
     <>
       <Navbar />
-
       <main>{children}</main>
-
       <Footer />
     </>
   );
 }
 
 function App() {
+  const { user } = useAuth();
+  const userId = user?.id || user?._id || user?.sub || user?.email;
+
   return (
     <Routes>
       {/* ==================== MAIN WEBSITE ==================== */}
@@ -34,7 +38,7 @@ function App() {
         element={
           <ProtectedRoute>
             <MainLayout>
-              <Home />
+              <Home userId={userId} />
             </MainLayout>
           </ProtectedRoute>
         }
@@ -46,7 +50,7 @@ function App() {
         element={
           <ProtectedRoute>
             <MainLayout>
-              <Men />
+              <Men userId={userId} />
             </MainLayout>
           </ProtectedRoute>
         }
@@ -58,7 +62,19 @@ function App() {
         element={
           <ProtectedRoute>
             <MainLayout>
-              <Women />
+              <Women userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Cart Page */}
+      <Route
+        path="/cart"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CartPage userId={userId} />
             </MainLayout>
           </ProtectedRoute>
         }
@@ -75,6 +91,19 @@ function App() {
       {/* ==================== 404 ==================== */}
 
       <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="/signup" element={<Signup />} /> {/* 👈 Yahan Signup route add karein */}
+
+      // ... baki routes ke sath yeh add karein:
+<Route
+  path="/product/:id"
+  element={
+    <ProtectedRoute>
+      <MainLayout>
+        <ProductDetail userId={userId} />
+      </MainLayout>
+    </ProtectedRoute>
+  }
+/>
     </Routes>
   );
 }

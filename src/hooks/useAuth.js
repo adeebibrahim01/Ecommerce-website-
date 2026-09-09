@@ -40,7 +40,6 @@ export function useAuth() {
 
       const data = await response.json();
 
-      // Calculate remaining time to hit 2.5 seconds minimum delay
       const elapsedTime = Date.now() - startTime;
       const remainingDelay = Math.max(0, MINIMUM_LOADER_DELAY - elapsedTime);
 
@@ -107,6 +106,33 @@ export function useAuth() {
     window.location.href = `${API_BASE_URL}/auth/google`;
   };
 
+  // Manual Login helper function for Login.jsx
+  const login = async (email, password) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Invalid email or password");
+      }
+
+      // Save token and user info
+      localStorage.setItem("auth_token", data.token);
+      localStorage.setItem("user_info", JSON.stringify(data.user));
+      setUser(data.user);
+
+      navigate("/", { replace: true });
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("auth_token");
     localStorage.removeItem("user_info");
@@ -118,6 +144,7 @@ export function useAuth() {
     user,
     isLoading,
     loginWithGoogle,
+    login,
     logout,
   };
 }

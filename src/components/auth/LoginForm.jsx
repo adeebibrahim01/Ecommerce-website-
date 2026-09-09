@@ -1,13 +1,42 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
+import { Mail, Lock } from "lucide-react";
 
 export default function LoginForm() {
-  const { user, isLoading, loginWithGoogle } = useAuth();
+  const { user, isLoading, loginWithGoogle, login } = useAuth();
   const navigate = useNavigate();
 
+  // New state for manual login
+  const [formData, setFormData] = useState({ email: "", password: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleManualLogin = async (e) => {
+    e.preventDefault();
+    setErrorMessage("");
+
+    if (!formData.email || !formData.password) {
+      setErrorMessage("Please fill in all fields.");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await login(formData.email, formData.password);
+    
+    if (!result?.success) {
+      setErrorMessage(result?.message || "Invalid email or password.");
+      setSubmitting(false);
+    }
+  };
+
   // Redirect to home `/` seamlessly if authenticated
-  const userId = user?.id || user?._id || user?.email; // Stable primitive identifier
+  const userId = user?.id || user?._id || user?.email;
 
   useEffect(() => {
     if (!isLoading && user) {
@@ -120,6 +149,61 @@ export default function LoginForm() {
 
               <div className="my-10 h-px w-full bg-[#D1B79E]/60" />
 
+              {/* Manual Login Form */}
+              <form onSubmit={handleManualLogin} className="mb-6 flex flex-col gap-4">
+                <div>
+                  <label className="mb-1.5 block text-[10px] font-medium tracking-[0.15em] text-[#432817] uppercase">
+                    Email Address *
+                  </label>
+                  <div className="relative flex items-center">
+                    <Mail size={16} className="absolute left-3 text-[#7E7E86]" />
+                    <input
+                      type="email"
+                      name="email"
+                      value={formData.email}
+                      onChange={handleChange}
+                      placeholder="john@example.com"
+                      required
+                      className="w-full border border-[#D1B79E] bg-[#EDE6DA]/20 py-3 pl-10 pr-4 text-xs text-[#432817] outline-none transition focus:border-[#432817]"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-[10px] font-medium tracking-[0.15em] text-[#432817] uppercase">
+                    Password *
+                  </label>
+                  <div className="relative flex items-center">
+                    <Lock size={16} className="absolute left-3 text-[#7E7E86]" />
+                    <input
+                      type="password"
+                      name="password"
+                      value={formData.password}
+                      onChange={handleChange}
+                      placeholder="••••••••"
+                      required
+                      className="w-full border border-[#D1B79E] bg-[#EDE6DA]/20 py-3 pl-10 pr-4 text-xs text-[#432817] outline-none transition focus:border-[#432817]"
+                    />
+                  </div>
+                </div>
+
+                {errorMessage && <p className="text-[10px] text-red-600 tracking-wide">{errorMessage}</p>}
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="mt-2 w-full bg-[#432817] py-4 text-[10px] font-medium tracking-[0.2em] text-[#EDE6DA] uppercase transition hover:bg-[#5a3720] disabled:opacity-50"
+                >
+                  {submitting ? "Signing in..." : "Sign In"}
+                </button>
+              </form>
+
+              <div className="my-6 flex items-center gap-4">
+                <div className="h-px flex-1 bg-[#D1B79E]/60" />
+                <span className="text-[9px] tracking-[0.25em] text-[#7E7E86] uppercase">Or</span>
+                <div className="h-px flex-1 bg-[#D1B79E]/60" />
+              </div>
+
               {/* Google Button */}
               <button
                 type="button"
@@ -157,20 +241,19 @@ export default function LoginForm() {
                     <path d="m9 12 2 2 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <p className="text-xs leading-5 text-[#7E7E86]">
-                    Your account is securely authenticated with Google. We never store your Google password.
+                    Your account is securely authenticated. We never store your passwords securely.
                   </p>
                 </div>
               </div>
 
               <div className="mt-10 text-center">
                 <p className="text-xs text-[#7E7E86]">New to AURELIA?</p>
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  className="mt-2 text-xs font-medium tracking-[0.15em] text-[#432817] uppercase underline decoration-[#A78361] underline-offset-4 transition hover:text-[#977150]"
+                <Link
+                  to="/signup"
+                  className="mt-2 inline-block text-xs font-medium tracking-[0.15em] text-[#432817] uppercase underline decoration-[#A78361] underline-offset-4 transition hover:text-[#977150]"
                 >
                   Create an account
-                </button>
+                </Link>
               </div>
 
             </div>

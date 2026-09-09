@@ -14,13 +14,13 @@ export default function NavbarActions({
   setUserMenu,
   cartCount,
   cartItems,
+  onRemoveItem, // onDelete/remove function receive kiya
   onNavigate,
   logout,
 }) {
   return (
     <div className="hidden items-center gap-3 sm:flex">
       {/* Search */}
-
       <button
         type="button"
         aria-label="Search"
@@ -33,7 +33,6 @@ export default function NavbarActions({
       </button>
 
       {/* Wishlist */}
-
       <button
         type="button"
         aria-label="Wishlist"
@@ -46,19 +45,17 @@ export default function NavbarActions({
       </button>
 
       {/* Shopping Bag */}
-
       <CartPreview
         cartCount={cartCount}
         cartItems={cartItems}
+        onRemoveItem={onRemoveItem} // Yahan CartPreview ko pass kar diya gaya hai
         onNavigate={onNavigate}
       />
 
       {/* Divider */}
-
       <div className="mx-2 h-8 w-px bg-[#D1B79E]" />
 
       {/* User */}
-
       <UserMenu
         user={user}
         userName={userName}

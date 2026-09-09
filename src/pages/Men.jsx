@@ -8,12 +8,12 @@ import ProductFilters from "../components/shop/ProductFilters";
 import ProductSort from "../components/shop/ProductSort";
 import { useCart } from "../hooks/useCart"; // 1. Hook import karein
 
-export default function ProductGrid({ category, userId }) { // userId prop accept karein
+export default function ProductGrid({ category, userId }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("featured");
 
-  // 2. Cart Hook initialize karein
-  const { addToCart, isLoading: isCartLoading } = useCart(userId);
+  // 2. Hook ko sirf EK dafa call karein aur saari zaroori cheezein nikal lein
+  const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
 
   // Add to cart handler
   const handleAddToCart = async (productId) => {
@@ -82,6 +82,14 @@ export default function ProductGrid({ category, userId }) { // userId prop accep
 
     return result;
   }, [category, selectedCategory, sortBy]);
+
+  // Yeh check karega ke item database cart mein hai ya nahi
+  const isProductInCart = (productId) => {
+    if (!cartItems) return false;
+    return cartItems.some(
+      (item) => String(item.product_id || item.productId) === String(productId)
+    );
+  };
 
   return (
     <section className="relative overflow-hidden bg-[#EDE6DA]">
@@ -195,7 +203,6 @@ export default function ProductGrid({ category, userId }) { // userId prop accep
                   key={product.id}
                   className="group min-w-0"
                 >
-                  {/* 3. ProductCard me onAddToCart handler pass karein */}
                   <ProductCard
                     id={product.id}
                     name={product.name}
@@ -203,6 +210,7 @@ export default function ProductGrid({ category, userId }) { // userId prop accep
                     image={product.image}
                     category={product.type}
                     badge={product.badge}
+                    isInCart={isProductInCart(product.id)}
                     onAddToCart={() => handleAddToCart(product.id)}
                     isCartLoading={isCartLoading}
                   />

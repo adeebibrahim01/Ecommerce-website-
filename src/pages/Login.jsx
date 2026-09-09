@@ -1,64 +1,76 @@
+import { useNavigate } from "react-router-dom";
 import LoginForm from "../components/auth/LoginForm";
 
-function Login() {
+export default function Login() {
+  const navigate = useNavigate();
+
   return (
-    <main className="min-h-screen bg-fashion-bg text-fashion-dark">
+    <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
       <div className="grid min-h-screen lg:grid-cols-2">
-        {/* Left — Fashion Image / Brand Area */}
+        {/* LEFT — FASHION IMAGE */}
         <section className="relative hidden min-h-screen overflow-hidden lg:block">
-          {/* Background image */}
           <img
-            src="/images/login-fashion.jpg"
-            alt="Fashion collection"
+            src="https://images.unsplash.com/photo-1772714601004-23b94ae3913d?auto=format&fit=crop&fm=jpg&q=85&w=1600"
+            alt="Editorial fashion"
             className="absolute inset-0 h-full w-full object-cover"
           />
+          <div className="absolute inset-0 bg-[#432817]/10" />
 
-          {/* Soft overlay */}
-          <div className="absolute inset-0 bg-fashion-dark/20" />
+          {/* Top logo */}
+          <div className="absolute left-10 top-9 z-10">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="font-serif text-2xl tracking-[0.18em] text-white"
+            >
+              AURELIA
+            </button>
+          </div>
 
-          {/* Brand */}
-          <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
-            <div>
-              <span className="font-serif text-3xl tracking-wide text-white">
-                MODA
-              </span>
-            </div>
-
-            <div className="max-w-md">
-              <p className="mb-4 text-xs font-medium uppercase tracking-[0.3em] text-white/80">
-                Timeless fashion
-              </p>
-
-              <h2 className="font-serif text-5xl font-medium leading-[1.05] text-white xl:text-6xl">
-                Style that speaks
-                <br />
-                for itself.
-              </h2>
-
-              <p className="mt-6 max-w-sm text-sm leading-6 text-white/80">
-                Discover carefully curated pieces designed to become part of
-                your everyday style.
+          <div className="absolute bottom-10 left-10 right-10 z-10 text-white">
+            <p className="mb-4 text-[10px] font-medium tracking-[0.4em] uppercase">
+              New Season · 2026
+            </p>
+            <h2 className="max-w-lg font-serif text-5xl leading-[0.95] tracking-tight xl:text-6xl">
+              Elegance <br /> in every <br /> detail.
+            </h2>
+            <div className="mt-7 flex items-center gap-4">
+              <span className="h-px w-12 bg-white/70" />
+              <p className="text-xs tracking-[0.18em] uppercase">
+                Discover your style
               </p>
             </div>
           </div>
         </section>
 
-        {/* Right — Login */}
-        <section className="flex min-h-screen items-center justify-center px-6 py-12 sm:px-10 lg:px-12 xl:px-20">
-          <div className="w-full max-w-md">
-            {/* Mobile brand */}
-            <div className="mb-12 lg:hidden">
-              <span className="font-serif text-3xl tracking-wide text-fashion-dark">
-                MODA
-              </span>
-            </div>
+        {/* RIGHT — LOGIN SECTION */}
+        <section className="relative flex min-h-screen flex-col justify-between px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
+          {/* Mobile Header */}
+          <header className="flex items-center justify-between lg:hidden">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="font-serif text-xl tracking-[0.16em]"
+            >
+              AURELIA
+            </button>
+            <span className="text-[10px] tracking-[0.25em] text-[#7E7E86] uppercase">
+              Account
+            </span>
+          </header>
 
+          {/* Form Container */}
+          <div className="flex flex-1 items-center justify-center py-8">
             <LoginForm />
           </div>
+
+          <footer className="text-center lg:text-left">
+            <p className="text-[9px] tracking-[0.2em] text-[#7E7E86] uppercase">
+              © 2026 AURELIA · All rights reserved
+            </p>
+          </footer>
         </section>
       </div>
     </main>
   );
 }
-
-export default Login;
