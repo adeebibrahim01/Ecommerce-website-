@@ -1,27 +1,107 @@
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 const API_BASE_URL = "https://ecommerce-website.adeebibrahim01.workers.dev";
+const MINIMUM_LOADER_DELAY = 2500; // 2.5 seconds minimum loader time
 
 export function useAuth() {
+  const [user, setUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem("user_info");
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      localStorage.removeItem("user_info");
+      return null;
+    }
+  });
+
+  const [isLoading, setIsLoading] = useState(() => {
+    const hasUrlToken = new URLSearchParams(window.location.search).has("token");
+    const hasSavedToken = Boolean(localStorage.getItem("auth_token"));
+    return hasUrlToken || hasSavedToken;
+  });
+
   const navigate = useNavigate();
 
-  useEffect(() => {
-    // Check if token exists in URL search params
-    const searchParams = new URLSearchParams(window.location.search);
-    const urlToken = searchParams.get("token");
+  // Profile fetcher function with enforced minimum delay
+  const fetchUserProfile = useCallback(async (token) => {
+    const startTime = Date.now();
 
-    if (urlToken) {
-      // 1. Save token in LocalStorage
-      localStorage.setItem("auth_token", urlToken);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-      // 2. Clear query string from URL without page reload
-      window.history.replaceState({}, document.title, window.location.pathname);
+      if (!response.ok) {
+        throw new Error("Failed to fetch user data");
+      }
 
-      // 3. Navigate to protected Home route ('/')
-      navigate("/", { replace: true });
+      const data = await response.json();
+
+      // Calculate remaining time to hit 2.5 seconds minimum delay
+      const elapsedTime = Date.now() - startTime;
+      const remainingDelay = Math.max(0, MINIMUM_LOADER_DELAY - elapsedTime);
+
+      if (data.authenticated && data.user) {
+        await new Promise((resolve) => setTimeout(resolve, remainingDelay));
+        setUser(data.user);
+        localStorage.setItem("user_info", JSON.stringify(data.user));
+        return true;
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, remainingDelay));
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("user_info");
+        setUser(null);
+        return false;
+      }
+    } catch (err) {
+      console.error("Error fetching user profile:", err);
+      const elapsedTime = Date.now() - startTime;
+      const remainingDelay = Math.max(0, MINIMUM_LOADER_DELAY - elapsedTime);
+      await new Promise((resolve) => setTimeout(resolve, remainingDelay));
+
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user_info");
+      setUser(null);
+      return false;
+    } finally {
+      setIsLoading(false);
     }
-  }, [navigate]);
+  }, []);
+
+  useEffect(() => {
+    const handleAuthFlow = async () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlToken = searchParams.get("token");
+
+      // CASE 1: User OAuth Callback with token in URL
+      if (urlToken) {
+        localStorage.setItem("auth_token", urlToken);
+
+        // Silent URL cleanup
+        window.history.replaceState(null, "", window.location.pathname);
+
+        const success = await fetchUserProfile(urlToken);
+        if (success) {
+          navigate("/", { replace: true });
+        }
+        return;
+      }
+
+      // CASE 2: Existing saved session check
+      const savedToken = localStorage.getItem("auth_token");
+
+      if (savedToken) {
+        await fetchUserProfile(savedToken);
+      } else {
+        setIsLoading(false);
+      }
+    };
+
+    handleAuthFlow();
+  }, [fetchUserProfile, navigate]);
 
   const loginWithGoogle = () => {
     window.location.href = `${API_BASE_URL}/auth/google`;
@@ -29,10 +109,14 @@ export function useAuth() {
 
   const logout = () => {
     localStorage.removeItem("auth_token");
+    localStorage.removeItem("user_info");
+    setUser(null);
     navigate("/login", { replace: true });
   };
 
   return {
+    user,
+    isLoading,
     loginWithGoogle,
     logout,
   };

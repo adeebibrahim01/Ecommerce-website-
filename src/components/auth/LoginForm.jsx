@@ -1,9 +1,17 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 
 export default function LoginForm() {
-  const { loginWithGoogle } = useAuth();
+  const { user, isLoading, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
+
+  // Redirect to home `/` seamlessly if authenticated
+  useEffect(() => {
+    if (!isLoading && user) {
+      navigate("/", { replace: true });
+    }
+  }, [user, isLoading, navigate]);
 
   // Direct Redirection Fallback Handler
   const handleGoogleLogin = (e) => {
@@ -11,10 +19,25 @@ export default function LoginForm() {
     if (typeof loginWithGoogle === "function") {
       loginWithGoogle();
     } else {
-      // Direct hard redirect if hook fails
       window.location.href = "https://ecommerce-website.adeebibrahim01.workers.dev/auth/google";
     }
   };
+
+  // Luxury Full-Screen Loading Overlay to completely fix layout blinking
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#EDE6DA] text-[#432817]">
+        <div className="relative flex items-center justify-center">
+          {/* Animated luxury ring */}
+          <div className="h-20 w-20 animate-spin rounded-full border-b-2 border-[#977150]" />
+          <span className="absolute font-serif text-xs tracking-[0.25em]">A</span>
+        </div>
+        <p className="mt-6 font-serif text-xs tracking-[0.3em] uppercase text-[#7E7E86] animate-pulse">
+          Authenticating...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
