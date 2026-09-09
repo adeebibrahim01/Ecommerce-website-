@@ -1,98 +1,20 @@
-// src/components/auth/LoginForm.jsx
-
-import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 
 export default function LoginForm() {
-  console.log("========================================");
-  console.log("[LoginForm.jsx] Component mounting / re-rendering");
-  console.log("[LoginForm.jsx] Location State:", {
-    fullURL: window.location.href,
-    origin: window.location.origin,
-    pathname: window.location.pathname,
-    searchParams: window.location.search,
-    hash: window.location.hash
-  });
-  console.log("========================================");
-
-  const { user, loginWithGoogle, isLoading } = useAuth();
+  const { loginWithGoogle } = useAuth();
   const navigate = useNavigate();
 
-  console.log("[LoginForm.jsx] Auth Hook Context State:", {
-    userObject: user,
-    isAuthenticated: !!user,
-    isLoading,
-    loginWithGoogleAvailable: typeof loginWithGoogle === "function"
-  });
-
-  // =========================================================
-  // AUTH STATE & AUTOMATIC REDIRECT CHECK
-  // =========================================================
-  useEffect(() => {
-    console.log("----------------------------------------");
-    console.log("[LoginForm.jsx] [Effect: Auth Check] Triggered");
-    console.log("[LoginForm.jsx] [Effect: Auth Check] Current Values:", {
-      user,
-      isLoading,
-      currentURL: window.location.href
-    });
-
-    if (!isLoading && user) {
-      console.log("[LoginForm.jsx] [Effect: Auth Check] SUCCESS: User is authenticated!");
-      console.log("[LoginForm.jsx] [Effect: Auth Check] Action: Redirecting to Home route ('/') via react-router navigate()");
-
-      navigate("/", { replace: true });
-      return;
-    }
-
-    if (isLoading) {
-      console.log("[LoginForm.jsx] [Effect: Auth Check] STATUS: Auth state is loading/verifying token. Waiting...");
+  // Direct Redirection Fallback Handler
+  const handleGoogleLogin = (e) => {
+    e.preventDefault();
+    if (typeof loginWithGoogle === "function") {
+      loginWithGoogle();
     } else {
-      console.log("[LoginForm.jsx] [Effect: Auth Check] STATUS: No active session/user found. Remaining on Login page.");
+      // Direct hard redirect if hook fails
+      window.location.href = "https://ecommerce-website.adeebibrahim01.workers.dev/auth/google";
     }
-
-    console.log("----------------------------------------");
-  }, [user, isLoading, navigate]);
-
-  // =========================================================
-  // GOOGLE LOGIN HANDLER
-  // =========================================================
-  const handleGoogleLogin = () => {
-    console.log("========================================");
-    console.log("[LoginForm.jsx] [Action] Google Login Button Clicked");
-    console.log("[LoginForm.jsx] [Action] Initiated from Component: src/components/auth/LoginForm.jsx");
-
-    const workerBaseUrl = "https://ecommerce-website.adeebibrahim01.workers.dev";
-    const googleAuthUrl = `${workerBaseUrl}/auth/google`;
-
-    console.log("[LoginForm.jsx] [Action] Target Cloudflare Worker OAuth endpoint:", googleAuthUrl);
-    console.log("[LoginForm.jsx] [Action] Executing Browser Redirect -> window.location.href");
-    console.log("========================================");
-
-    // Browser ko worker auth URL par redirect karta hai
-    window.location.href = googleAuthUrl;
   };
-
-  // =========================================================
-  // LOADING SCREEN
-  // =========================================================
-  if (isLoading) {
-    console.log("[LoginForm.jsx] [Render] Rendering Loading UI screen");
-
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#EDE6DA]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#432817] border-t-transparent" />
-          <p className="text-xs tracking-[0.25em] text-[#7E7E86] uppercase">
-            Loading
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  console.log("[LoginForm.jsx] [Render] Rendering Main Login Form UI");
 
   return (
     <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
@@ -111,10 +33,7 @@ export default function LoginForm() {
           <div className="absolute left-10 top-9 z-10">
             <button
               type="button"
-              onClick={() => {
-                console.log("[LoginForm.jsx] [Nav] Desktop Brand Logo Clicked -> Navigating to '/'");
-                navigate("/");
-              }}
+              onClick={() => navigate("/")}
               className="font-serif text-2xl tracking-[0.18em] text-white"
             >
               AURELIA
@@ -144,10 +63,7 @@ export default function LoginForm() {
           <header className="flex items-center justify-between px-6 py-7 lg:hidden">
             <button
               type="button"
-              onClick={() => {
-                console.log("[LoginForm.jsx] [Nav] Mobile Brand Logo Clicked -> Navigating to '/'");
-                navigate("/");
-              }}
+              onClick={() => navigate("/")}
               className="font-serif text-xl tracking-[0.16em]"
             >
               AURELIA
@@ -225,10 +141,7 @@ export default function LoginForm() {
                 <p className="text-xs text-[#7E7E86]">New to AURELIA?</p>
                 <button
                   type="button"
-                  onClick={() => {
-                    console.log("[LoginForm.jsx] [Action] Create Account Clicked -> Redirecting via Google OAuth");
-                    handleGoogleLogin();
-                  }}
+                  onClick={handleGoogleLogin}
                   className="mt-2 text-xs font-medium tracking-[0.15em] text-[#432817] uppercase underline decoration-[#A78361] underline-offset-4 transition hover:text-[#977150]"
                 >
                   Create an account

@@ -1,16 +1,23 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ecommerce-website",
-  "main": "src/index.js",
+  "main": "src/worker.js",
   "compatibility_date": "2026-09-09",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-
-  // Environment Variables
   "vars": {
     "FRONTEND_URL": "http://localhost:5173",
     "GOOGLE_CLIENT_ID": "256054170428-g0qst426uecglv0odu9vvh6d0k2d0f9r.apps.googleusercontent.com",
     "JWT_SECRET": "super_secret_jwt_key_aurelia_2026"
-  }
+  },
+
+  // 🔹 D1 DATABASE BINDING
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aurelia-db",
+      "database_id": "06206881-6a36-494b-aacc-72d1aa2fabb8"
+    }
+  ]
 }
