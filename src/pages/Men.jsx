@@ -16,12 +16,24 @@ export default function ProductGrid({ category, userId }) {
   const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
 
   // Add to cart handler
-  const handleAddToCart = async (productId) => {
+  // FIX: pehle sirf `productId` liya jata tha aur addToCart(productId, 1)
+  // call hoti thi - is se name/price/image kabhi bheja hi nahi jata tha,
+  // aur useCart hook ke fallback defaults ("Product #id", price: 0) DB
+  // mein save ho jate thay. Ab pura `product` object lete hain aur
+  // addToCart ko teesra argument (name/price/image) bhi bhejte hain.
+  const handleAddToCart = async (product) => {
     if (!userId) {
       alert("Please log in to add items to cart.");
       return;
     }
-    const success = await addToCart(productId, 1);
+    if (!product?.id) return;
+
+    const success = await addToCart(product.id, 1, {
+      name: product.name,
+      price: product.price,
+      image: product.image,
+    });
+
     if (success) {
       // Toast notification or success indicator added here
     }
@@ -211,7 +223,7 @@ export default function ProductGrid({ category, userId }) {
                     category={product.type}
                     badge={product.badge}
                     isInCart={isProductInCart(product.id)}
-                    onAddToCart={() => handleAddToCart(product.id)}
+                    onAddToCart={() => handleAddToCart(product)}
                     isCartLoading={isCartLoading}
                   />
                 </div>

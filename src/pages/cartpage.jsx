@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Trash2, Plus, Minus, ShoppingBag, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { useCart } from "../hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
@@ -9,60 +9,103 @@ export default function CartPage() {
   const navigate = useNavigate();
   const userId = user?.id || user?._id || user?.sub || user?.email;
 
-  const { cartItems, isLoading, refreshCart, removeFromCart, addToCart } = useCart(userId);
+  const { cartItems, isLoading, removeFromCart, addToCart } = useCart(userId);
   const [checkoutAlert, setCheckoutAlert] = useState(false);
-  
-  const [localItems, setLocalItems] = useState([]);
-  const isUpdatingRef = useRef(false);
 
+  const [localItems, setLocalItems] = useState([]);
+
+  // Per-item pending lock (Set of product_ids currently being updated).
+  // FIX: pehle ek hi global `isUpdatingRef` boolean tha jo EK item update
+  // hone par POORI list ka sync 600ms ke liye rok deta tha (chahe koi
+  // unrelated item ho). Ab sirf wahi item lock hota hai jo actually
+  // update ho raha hai, aur lock hatna network response ka wait karta
+  // hai (koi arbitrary setTimeout guess nahi) - is se fast network par
+  // needless UI lock aur slow network par premature unlock, dono khatam
+  // ho gaye.
+  const [pendingIds, setPendingIds] = useState(() => new Set());
+
+  const addPending = useCallback((id) => {
+    setPendingIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  const removePending = useCallback((id) => {
+    setPendingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  // Sync server cart -> local UI copy, lekin sirf jab koi item pending
+  // update mein na ho (warna abhi jo optimistic value dikha rahe hain
+  // wo cache ke purane snapshot se overwrite ho jayegi).
   useEffect(() => {
-    if (cartItems && !isUpdatingRef.current) {
+    if (cartItems && pendingIds.size === 0) {
       setLocalItems(cartItems);
     }
-  }, [cartItems]);
+  }, [cartItems, pendingIds]);
 
-  useEffect(() => {
-    if (userId) {
-      refreshCart();
-    }
-  }, [userId, refreshCart]);
+  // NOTE: yahan pehle ek extra `refreshCart()` bhi call hoti thi mount
+  // par - lekin useCart ke andar useQuery already `enabled: !!userId`
+  // ke sath khud fetch kar leta hai. Wo extra call sirf DUPLICATE
+  // network request thi - hata di gayi hai (performance fix).
 
   // Optimized Calculations using useMemo
   const { subtotal, shipping, grandTotal } = useMemo(() => {
-    const sub = localItems.reduce((acc, item) => acc + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
-    const ship = sub > 0 ? 10.00 : 0;
+    const sub = localItems.reduce(
+      (acc, item) => acc + Number(item.price || 0) * Number(item.quantity || 1),
+      0
+    );
+    const ship = sub > 0 ? 10.0 : 0;
     return { subtotal: sub, shipping: ship, grandTotal: sub + ship };
   }, [localItems]);
 
-  const handleIncrease = useCallback(async (item) => {
-    isUpdatingRef.current = true;
+  const handleRemove = useCallback(
+    async (productId) => {
+      addPending(productId);
+      setLocalItems((prev) => prev.filter((i) => i.product_id !== productId));
+      try {
+        await removeFromCart(productId);
+      } finally {
+        removePending(productId);
+      }
+    },
+    [removeFromCart, addPending, removePending]
+  );
 
-    setLocalItems((prev) =>
-      prev.map((i) =>
-        i.product_id === item.product_id ? { ...i, quantity: i.quantity + 1 } : i
-      )
-    );
+  const handleIncrease = useCallback(
+    async (item) => {
+      addPending(item.product_id);
 
-    try {
-      await addToCart(item.product_id, 1, {
-        name: item.name,
-        price: item.price,
-        image: item.image,
-      });
-      window.dispatchEvent(new Event("cart-change"));
-    } catch (error) {
-      console.error("Failed to increase quantity", error);
-      refreshCart();
-    } finally {
-      setTimeout(() => {
-        isUpdatingRef.current = false;
-      }, 600);
-    }
-  }, [addToCart, refreshCart]);
+      setLocalItems((prev) =>
+        prev.map((i) =>
+          i.product_id === item.product_id ? { ...i, quantity: i.quantity + 1 } : i
+        )
+      );
 
-  const handleDecrease = useCallback(async (item) => {
-    if (item.quantity > 1) {
-      isUpdatingRef.current = true;
+      try {
+        await addToCart(item.product_id, 1, {
+          name: item.name,
+          price: item.price,
+          image: item.image,
+        });
+      } catch (error) {
+        console.error("Failed to increase quantity", error);
+      } finally {
+        removePending(item.product_id);
+      }
+    },
+    [addToCart, addPending, removePending]
+  );
+
+  const handleDecrease = useCallback(
+    async (item) => {
+      if (item.quantity <= 1) {
+        handleRemove(item.product_id);
+        return;
+      }
+
+      addPending(item.product_id);
 
       setLocalItems((prev) =>
         prev.map((i) =>
@@ -71,41 +114,24 @@ export default function CartPage() {
       );
 
       try {
-        const API_BASE_URL = "https://cart-worker-service.adeebibrahim01.workers.dev";
-        await fetch(`${API_BASE_URL}/cart/add`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: String(userId),
-            productId: String(item.product_id),
-            quantity: -1,
-            name: item.name,
-            price: item.price,
-            image: item.image,
-          }),
+        // FIX: pehle yahan ek alag raw `fetch()` call thi jo useCart ke
+        // cache/badge-count se disconnect thi. Ab wahi `addToCart`
+        // mutation use ho rahi hai jo increase mein hoti hai, bas
+        // quantity -1 (delta) ke sath - taake cart-icon count, cache
+        // aur is page ka data hamesha sync rahe (single source of truth).
+        await addToCart(item.product_id, -1, {
+          name: item.name,
+          price: item.price,
+          image: item.image,
         });
-        window.dispatchEvent(new Event("cart-change"));
       } catch (error) {
         console.error("Failed to decrease quantity", error);
-        refreshCart();
       } finally {
-        setTimeout(() => {
-          isUpdatingRef.current = false;
-        }, 600);
+        removePending(item.product_id);
       }
-    } else {
-      handleRemove(item.product_id);
-    }
-  }, [userId, refreshCart]);
-
-  const handleRemove = useCallback(async (productId) => {
-    isUpdatingRef.current = true;
-    setLocalItems((prev) => prev.filter((i) => i.product_id !== productId));
-    await removeFromCart(productId);
-    setTimeout(() => {
-      isUpdatingRef.current = false;
-    }, 600);
-  }, [removeFromCart]);
+    },
+    [addToCart, addPending, removePending, handleRemove]
+  );
 
   return (
     <div className="min-h-screen bg-[#F7F3EC] px-4 py-8 md:px-12 lg:px-24">
@@ -145,66 +171,73 @@ export default function CartPage() {
         ) : (
           <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-4">
-              {localItems.map((item) => (
-                <div
-                  key={item.product_id}
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#D1B79E]/40 pb-4 bg-white/40 p-4 rounded-xl transition-all"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-20 w-16 shrink-0 overflow-hidden rounded-lg bg-[#D1B79E]/30">
-                      {item.image ? (
-                        <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[#977150]">
-                          <ShoppingBag size={20} />
-                        </div>
-                      )}
+              {localItems.map((item) => {
+                const isPending = pendingIds.has(item.product_id);
+                return (
+                  <div
+                    key={item.product_id}
+                    className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#D1B79E]/40 pb-4 bg-white/40 p-4 rounded-xl transition-all ${isPending ? "opacity-60" : ""
+                      }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="h-20 w-16 shrink-0 overflow-hidden rounded-lg bg-[#D1B79E]/30">
+                        {item.image ? (
+                          <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[#977150]">
+                            <ShoppingBag size={20} />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-semibold text-[#432817]">
+                          {item.name || "Classic Fashion Item"}
+                        </h3>
+                        <p className="mt-1 text-xs font-medium text-[#977150]">
+                          ${Number(item.price || 0).toLocaleString()}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-xs font-semibold text-[#432817]">
-                        {item.name || "Classic Fashion Item"}
-                      </h3>
-                      <p className="mt-1 text-xs font-medium text-[#977150]">
-                        ${Number(item.price || 0).toLocaleString()}
+
+                    <div className="flex items-center justify-between w-full sm:w-auto gap-6">
+                      <div className="flex items-center border border-[#D1B79E] rounded-md bg-white">
+                        <button
+                          onClick={() => handleDecrease(item)}
+                          disabled={isPending}
+                          className="p-1.5 text-[#432817] hover:bg-[#EDE6DA] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="Decrease quantity"
+                        >
+                          <Minus size={13} />
+                        </button>
+                        <span className="px-3 text-xs font-medium text-[#432817]">
+                          {item.quantity}
+                        </span>
+                        <button
+                          onClick={() => handleIncrease(item)}
+                          disabled={isPending}
+                          className="p-1.5 text-[#432817] hover:bg-[#EDE6DA] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="Increase quantity"
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+
+                      <p className="text-xs font-semibold text-[#432817]">
+                        ${(Number(item.price || 0) * Number(item.quantity || 1)).toLocaleString()}
                       </p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center justify-between w-full sm:w-auto gap-6">
-                    <div className="flex items-center border border-[#D1B79E] rounded-md bg-white">
                       <button
-                        onClick={() => handleDecrease(item)}
-                        className="p-1.5 text-[#432817] hover:bg-[#EDE6DA] transition-colors"
-                        aria-label="Decrease quantity"
+                        onClick={() => handleRemove(item.product_id)}
+                        disabled={isPending}
+                        className="text-[#8A8177] hover:text-red-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Remove item"
                       >
-                        <Minus size={13} />
-                      </button>
-                      <span className="px-3 text-xs font-medium text-[#432817]">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => handleIncrease(item)}
-                        className="p-1.5 text-[#432817] hover:bg-[#EDE6DA] transition-colors"
-                        aria-label="Increase quantity"
-                      >
-                        <Plus size={13} />
+                        <Trash2 size={16} />
                       </button>
                     </div>
-
-                    <p className="text-xs font-semibold text-[#432817]">
-                      ${(Number(item.price || 0) * Number(item.quantity || 1)).toLocaleString()}
-                    </p>
-
-                    <button
-                      onClick={() => handleRemove(item.product_id)}
-                      className="text-[#8A8177] hover:text-red-600 transition-colors"
-                      aria-label="Remove item"
-                    >
-                      <Trash2 size={16} />
-                    </button>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="rounded-2xl border border-[#D1B79E]/60 bg-white/60 p-6 shadow-sm backdrop-blur-md h-fit">

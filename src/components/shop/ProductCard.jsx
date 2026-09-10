@@ -11,8 +11,9 @@ export default function ProductCard({
   image,
   category,
   badge,
-  isInCart = false,          
-  onAddToCart,       
+  isInCart = false,
+  onAddToCart,
+  isCartLoading = false,
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -25,10 +26,12 @@ export default function ProductCard({
   const activeUserId = user?.id || user?._id || user?.sub || user?.email;
   const queryKey = ["cart", activeUserId];
 
-  // TanStack Query cache se direct check karein ke yeh product cart mein mojud hai ya nahi
+  // Sirf READ - cache check karne ke liye (isko save/write nahi karna, warna
+  // double-write ka masla wapis aa jayega). Actual add/update sirf parent ke
+  // useCart hook se hoga (single source of truth).
   const cartData = queryClient.getQueryData(queryKey) || { items: [] };
   const cachedItems = cartData.items || [];
-  
+
   const isCachedInCart = cachedItems.some(
     (item) => String(item.productId || item.product_id) === String(id)
   );
@@ -45,8 +48,8 @@ export default function ProductCard({
   };
 
   const handleQuickAdd = async (e) => {
-    e.stopPropagation(); 
-    if (isAdding || isAddedLocal) return;
+    e.stopPropagation();
+    if (isAdding || isAddedLocal || isCartLoading) return;
 
     if (!activeUserId) {
       setCartMessage("Please sign in first.");
@@ -54,107 +57,27 @@ export default function ProductCard({
       return;
     }
 
-    if (!id || !name || name === "Classic Fashion Item" || price === 129) {
-      setCartMessage("Invalid product data.");
-      return;
-    }
+    if (!onAddToCart) return;
 
     setIsAdding(true);
     setCartMessage("");
 
-    const numericPrice = typeof price === "number" ? price : parseFloat(String(price).replace(/[^0-9.]/g, "")) || 0;
-    const productImage = image || "";
-
     try {
-      // 1. Optimistic Update in TanStack Query Cache
-      await queryClient.cancelQueries({ queryKey });
-      const previousCart = queryClient.getQueryData(queryKey);
-
-      const newItem = {
-        productId: String(id),
-        product_id: String(id),
-        quantity: 1,
-        name: name,
-        price: numericPrice,
-        image: productImage,
-      };
-
-      queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
-        const items = [...(old.items || [])];
-        const existingIndex = items.findIndex(
-          (item) => String(item.productId || item.product_id) === String(id)
-        );
-
-        if (existingIndex > -1) {
-          items[existingIndex] = {
-            ...items[existingIndex],
-            quantity: Number(items[existingIndex].quantity || 0) + 1,
-          };
-        } else {
-          items.push(newItem);
-        }
-
-        const totalQuantity = items.reduce((total, item) => total + Number(item.quantity || 0), 0);
-        return { items, totalCount: totalQuantity };
-      });
-
-      // 2. API Call to Cloudflare Worker
-      const response = await fetch("https://cart-worker-service.adeebibrahim01.workers.dev/cart/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: String(activeUserId),
-          productId: String(id),
-          quantity: 1,
-          name: name,
-          price: numericPrice,
-          image: productImage,
-        }),
-      });
-
-      const responseText = await response.text();
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        throw new Error("Server error (Invalid JSON)");
-      }
-
-      if (!response.ok || !data.success) {
-        queryClient.setQueryData(queryKey, previousCart);
-        throw new Error(data.message || data.error || "Failed to add item.");
-      }
-
-      // 3. LocalStorage Persistence Sync
-      try {
-        const storageKey = `cart_items_${activeUserId}`;
-        const savedCart = localStorage.getItem(storageKey);
-        let parsedCart = savedCart ? JSON.parse(savedCart) : [];
-        
-        if (!parsedCart.some((item) => String(item.productId || item.product_id) === String(id))) {
-          parsedCart.push(newItem);
-          localStorage.setItem(storageKey, JSON.stringify(parsedCart));
-        }
-      } catch {
-        // Ignore storage errors
-      }
-
-      window.dispatchEvent(new Event("cart-change"));
-      
-      if (onAddToCart) {
-        onAddToCart(id);
-      }
+      // Ye single call hi cart add/update handle karega
+      // (useCart hook -> API -> query cache invalidate/update).
+      // Yahan koi alag fetch, localStorage ya queryClient.setQueryData
+      // nahi karna - warna item DOUBLE save ho jayega.
+      await onAddToCart(id);
     } catch (error) {
       console.error("Quick add error:", error);
-      setCartMessage(error.message || "Something went wrong.");
+      setCartMessage(error?.message || "Something went wrong.");
     } finally {
       setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey });
     }
   };
 
   return (
-    <article 
+    <article
       onClick={handleCardClick}
       className="group cursor-pointer"
     >
@@ -185,15 +108,14 @@ export default function ProductCard({
         <button
           type="button"
           onClick={(e) => {
-            e.stopPropagation(); 
+            e.stopPropagation();
             setLiked((prev) => !prev);
           }}
           aria-label={liked ? `Remove ${name} from wishlist` : `Add ${name} to wishlist`}
-          className={`absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-sm transition-all ${
-            liked
+          className={`absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-sm transition-all ${liked
               ? "bg-[#432817] text-[#EDE6DA]"
               : "bg-[#EDE6DA]/90 text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
-          }`}
+            }`}
         >
           <Heart
             size={16}
@@ -206,21 +128,20 @@ export default function ProductCard({
         <button
           type="button"
           onClick={handleQuickAdd}
-          disabled={isAdding || isAddedLocal}
+          disabled={isAdding || isAddedLocal || isCartLoading}
           aria-label={isAddedLocal ? `${name} is in cart` : `Add ${name} to cart`}
-          className={`absolute bottom-3 left-3 right-3 flex translate-y-3 items-center justify-center gap-2 py-3 text-[9px] font-medium tracking-[0.2em] uppercase transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 ${
-            isAddedLocal
+          className={`absolute bottom-3 left-3 right-3 flex translate-y-3 items-center justify-center gap-2 py-3 text-[9px] font-medium tracking-[0.2em] uppercase transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 ${isAddedLocal
               ? "opacity-100 cursor-not-allowed bg-[#6F7663] text-[#F7F3EC]"
               : "bg-[#EDE6DA] text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
-          }`}
+            }`}
         >
           <ShoppingBag size={13} strokeWidth={1.4} />
           <span>
             {isAdding
               ? "Adding..."
               : isAddedLocal
-              ? "Added to cart"
-              : cartMessage || "Quick add"}
+                ? "Added to cart"
+                : cartMessage || "Quick add"}
           </span>
         </button>
       </div>

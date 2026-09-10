@@ -45,9 +45,6 @@ export function useCart(userId) {
         0
       );
 
-      // 🔍 DEBUG FETCH: Check what server returned on initial fetch
-      console.log("🔍 [FRONTEND FETCH] Cart fetched from server:", { items, totalQuantity });
-
       return { items, totalCount: totalQuantity };
     },
     enabled: !!userId,
@@ -57,16 +54,28 @@ export function useCart(userId) {
 
   /*
   |--------------------------------------------------------------------------
-  | Add Item Mutation (Optimistic Update)
+  | Add/Update Item Mutation (Optimistic Update)
+  |--------------------------------------------------------------------------
+  | NOTE: `quantity` is treated as a DELTA (can be positive to add or
+  | negative to decrease) - it matches the worker's SQL which does
+  | `quantity = cart.quantity + excluded.quantity`. Only 0/undefined/NaN
+  | falls back to 1. Passing -1 correctly decreases by one instead of
+  | being forced back to +1 (that forcing was the earlier bug that made
+  | CartPage.jsx bypass this hook with its own raw fetch for decreasing).
   |--------------------------------------------------------------------------
   */
+  const resolveDelta = (quantity) => {
+    const raw = Number(quantity);
+    return Number.isFinite(raw) && raw !== 0 ? raw : 1;
+  };
+
   const addToCartMutation = useMutation({
     mutationFn: async ({ productId, quantity, product }) => {
       const productName = product?.name || product?.title || `Product #${productId}`;
       const productPrice = product?.price !== undefined && product?.price !== null ? Number(product.price) : 0;
       const productImage = product?.image || product?.img || product?.thumbnail || "";
-      
-      const finalQuantity = Number(quantity) > 0 ? Number(quantity) : 1;
+
+      const finalQuantity = resolveDelta(quantity);
 
       const payload = {
         userId,
@@ -77,9 +86,6 @@ export function useCart(userId) {
         image: productImage,
       };
 
-      // 🔍 DEBUG ADD PAYLOAD: Check what is actually sent to server
-      console.log("🔍 [FRONTEND ADD] Payload being sent to server:", payload);
-
       const response = await fetch(`${API_BASE_URL}/cart/add`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -87,14 +93,11 @@ export function useCart(userId) {
       });
 
       const resData = await response.json();
-      
-      // 🔍 DEBUG SERVER RESPONSE: Check what server replied with
-      console.log("🔍 [FRONTEND ADD] Server response received:", resData);
 
       if (!response.ok || !resData.success) {
-        throw new Error(resData.error || "Failed to add to cart");
+        throw new Error(resData.error || "Failed to update cart");
       }
-      return resData; 
+      return resData;
     },
     onMutate: async ({ productId, quantity, product }) => {
       await queryClient.cancelQueries({ queryKey });
@@ -103,11 +106,8 @@ export function useCart(userId) {
       const productName = product?.name || product?.title || `Product #${productId}`;
       const productPrice = product?.price !== undefined && product?.price !== null ? Number(product.price) : 0;
       const productImage = product?.image || product?.img || product?.thumbnail || "";
-      
-      const addQty = Number(quantity) > 0 ? Number(quantity) : 1;
 
-      // 🔍 DEBUG OPMITISTIC: Check what quantity is added locally
-      console.log("🔍 [FRONTEND OPMITISTIC] Adding quantity locally:", addQty, "for product:", productId);
+      const delta = resolveDelta(quantity);
 
       queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
         const items = [...(old.items || [])];
@@ -116,15 +116,19 @@ export function useCart(userId) {
         );
 
         if (existingIndex > -1) {
+          const newQty = Math.max(
+            0,
+            Number(items[existingIndex].quantity || 0) + delta
+          );
           items[existingIndex] = {
             ...items[existingIndex],
-            quantity: Number(items[existingIndex].quantity || 0) + addQty,
+            quantity: newQty,
           };
-        } else {
+        } else if (delta > 0) {
           items.push({
             productId: String(productId),
             product_id: String(productId),
-            quantity: addQty,
+            quantity: delta,
             name: productName,
             price: productPrice,
             image: productImage,
@@ -145,7 +149,7 @@ export function useCart(userId) {
       if (context?.previousCart) {
         queryClient.setQueryData(queryKey, context.previousCart);
       }
-      console.error("❌ [FRONTEND ADD ERROR] Failed to add to cart:", err);
+      console.error("❌ [FRONTEND ADD ERROR] Failed to update cart:", err);
     },
     onSuccess: (serverData) => {
       const items = serverData.items || serverData.cart;
@@ -217,11 +221,9 @@ export function useCart(userId) {
     },
   });
 
+  // quantity: pass a positive number to add, a negative number to decrease.
   const addToCart = async (productId, quantity = 1, product = {}) => {
     if (!userId || !productId) return false;
-    
-    // 🔍 DEBUG CALLER: Check where addToCart is called from and what quantity is passed
-    console.log("🔍 [FRONTEND CALLER] addToCart invoked with:", { productId, quantity });
 
     try {
       await addToCartMutation.mutateAsync({ productId, quantity, product });
@@ -248,5 +250,6 @@ export function useCart(userId) {
     refreshCart: refetch,
     addToCart,
     removeFromCart,
+    isMutating: addToCartMutation.isPending || removeFromCartMutation.isPending,
   };
 }

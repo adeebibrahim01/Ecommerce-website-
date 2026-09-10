@@ -6,27 +6,37 @@ import menProducts from "../data/men";
 import ProductCard from "../components/shop/ProductCard";
 import ProductFilters from "../components/shop/ProductFilters";
 import ProductSort from "../components/shop/ProductSort";
-import { useCart } from "../hooks/useCart";
-import { useAuth } from "../hooks/useAuth"; // Auth hook import karein
+import { useCart } from "../hooks/useCart"; // 1. Hook import karein
 
-export default function ProductGrid({ category, userId: propUserId }) {
+export default function ProductGrid({ category, userId }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("featured");
 
-  // Auth context se fallback userId lein agar prop me pass na ho
-  const { user } = useAuth();
-  const activeUserId = propUserId || user?.id || user?._id || user?.sub || user?.email;
-
-  // Cart Hook initialize
-  const { addToCart, isLoading: isCartLoading } = useCart(activeUserId);
+  // 2. Hook ko sirf EK dafa call karein aur saari zaroori cheezein nikal lein
+  const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
 
   // Add to cart handler
-  const handleAddToCart = async (productId) => {
-    if (!activeUserId) {
+  // FIX: pehle sirf `productId` liya jata tha aur addToCart(productId, 1)
+  // call hoti thi - is se name/price/image kabhi bheja hi nahi jata tha,
+  // aur useCart hook ke fallback defaults ("Product #id", price: 0) DB
+  // mein save ho jate thay. Ab pura `product` object lete hain aur
+  // addToCart ko teesra argument (name/price/image) bhi bhejte hain.
+  const handleAddToCart = async (product) => {
+    if (!userId) {
       alert("Please log in to add items to cart.");
       return;
     }
-    await addToCart(productId, 1);
+    if (!product?.id) return;
+
+    const success = await addToCart(product.id, 1, {
+      name: product.name,
+      price: product.price,
+      image: product.image,
+    });
+
+    if (success) {
+      // Toast notification or success indicator added here
+    }
   };
 
   const filteredAndSortedProducts = useMemo(() => {
@@ -84,6 +94,14 @@ export default function ProductGrid({ category, userId: propUserId }) {
 
     return result;
   }, [category, selectedCategory, sortBy]);
+
+  // Yeh check karega ke item database cart mein hai ya nahi
+  const isProductInCart = (productId) => {
+    if (!cartItems) return false;
+    return cartItems.some(
+      (item) => String(item.product_id || item.productId) === String(productId)
+    );
+  };
 
   return (
     <section className="relative overflow-hidden bg-[#EDE6DA]">
@@ -204,7 +222,8 @@ export default function ProductGrid({ category, userId: propUserId }) {
                     image={product.image}
                     category={product.type}
                     badge={product.badge}
-                    onAddToCart={() => handleAddToCart(product.id)}
+                    isInCart={isProductInCart(product.id)}
+                    onAddToCart={() => handleAddToCart(product)}
                     isCartLoading={isCartLoading}
                   />
                 </div>
