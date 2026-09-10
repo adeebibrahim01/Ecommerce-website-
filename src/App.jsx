@@ -6,7 +6,7 @@ import Footer from "./components/home/Footer";
 import LoginForm from "./components/auth/LoginForm";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import { useAuth } from "./hooks/useAuth"; // Auth hook import kiya agar user id chahiye ho
-
+import OrderSuccess from "./pages/OrderSuccess";
 import Home from "./pages/Home";
 import Men from "./pages/Men";
 import Women from "./pages/Women";
@@ -14,6 +14,7 @@ import CartPage from "./pages/cartpage";
 import ProductDetail from "./pages/ProductDetail"; // Aapka detail page component
 import LoginSuccess from "./pages/LoginSuccess";
 import Signup from "./pages/Signup";
+<Route path="/order-success" element={<OrderSuccess />} />
 function MainLayout({ children }) {
   return (
     <>
@@ -94,16 +95,16 @@ function App() {
       <Route path="/signup" element={<Signup />} /> {/* 👈 Yahan Signup route add karein */}
 
       // ... baki routes ke sath yeh add karein:
-<Route
-  path="/product/:id"
-  element={
-    <ProtectedRoute>
-      <MainLayout>
-        <ProductDetail userId={userId} />
-      </MainLayout>
-    </ProtectedRoute>
-  }
-/>
+      <Route
+        path="/product/:id"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <ProductDetail userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }

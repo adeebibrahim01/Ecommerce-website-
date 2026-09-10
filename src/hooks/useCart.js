@@ -221,29 +221,30 @@ export function useCart(userId) {
 
   /*
   |--------------------------------------------------------------------------
-  | Checkout Mutation — cart ko order mein convert karta hai (server-side)
+  | Stripe Checkout — Stripe ke hosted page ka session banata hai
   |--------------------------------------------------------------------------
   */
-  const checkoutMutation = useMutation({
-    mutationFn: async ({ shipping, paymentMethod } = {}) => {
-      const response = await fetch(`${API_BASE_URL}/checkout`, {
+  const createCheckoutSessionMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/create-checkout-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, shipping, paymentMethod }),
+        body: JSON.stringify({
+          userId,
+          successUrl: `${window.location.origin}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${window.location.origin}/cart`,
+        }),
       });
 
       const resData = await response.json();
       if (!response.ok || !resData.success) {
-        throw new Error(resData.error || "Checkout failed");
+        throw new Error(resData.error || "Failed to start checkout");
       }
       return resData;
     },
-    onSuccess: () => {
-      // Server-side cart clear ho chuka hai, ab local cache bhi khali kar dein
-      queryClient.setQueryData(queryKey, { items: [], totalCount: 0 });
-      window.dispatchEvent(new Event("cart-change"));
-    },
   });
+
+  // ---- Plain async wrapper functions (return se PEHLE define hone zaroori hain) ----
 
   // quantity: pass a positive number to add, a negative number to decrease.
   const addToCart = async (productId, quantity = 1, product = {}) => {
@@ -267,17 +268,20 @@ export function useCart(userId) {
     }
   };
 
-  // options: { shipping?, paymentMethod? } — dono optional hain
-  const checkout = async (options = {}) => {
+  // Isse call karne par user Stripe ki page par redirect ho jayega.
+  // Order webhook se banega jab payment successful ho jayegi.
+  const startCheckout = async () => {
     if (!userId) return { success: false, error: "Please log in first." };
     try {
-      const result = await checkoutMutation.mutateAsync(options);
-      return { success: true, order: result.order };
+      const result = await createCheckoutSessionMutation.mutateAsync();
+      window.location.href = result.url; // Stripe checkout page
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
   };
 
+  // ---- Ek hi return statement ----
   return {
     cartCount: data.totalCount,
     cartItems: data.items,
@@ -285,8 +289,8 @@ export function useCart(userId) {
     refreshCart: refetch,
     addToCart,
     removeFromCart,
-    checkout,
-    isCheckingOut: checkoutMutation.isPending,
+    startCheckout,
+    isStartingCheckout: createCheckoutSessionMutation.isPending,
     isMutating: addToCartMutation.isPending || removeFromCartMutation.isPending,
   };
 }

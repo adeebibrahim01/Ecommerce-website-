@@ -9,10 +9,10 @@ export default function CartPage() {
   const navigate = useNavigate();
   const userId = user?.id || user?._id || user?.sub || user?.email;
 
-  const { cartItems, isLoading, removeFromCart, addToCart, checkout, isCheckingOut } = useCart(userId);
   const [checkoutAlert, setCheckoutAlert] = useState(false);
-  const [checkoutError, setCheckoutError] = useState("");
 
+  const { cartItems, isLoading, removeFromCart, addToCart, startCheckout, isStartingCheckout } = useCart(userId);
+  const [checkoutError, setCheckoutError] = useState("");
   const [localItems, setLocalItems] = useState([]);
 
   // Per-item pending lock (Set of product_ids currently being updated).
@@ -119,15 +119,12 @@ export default function CartPage() {
   // Real checkout — order DB mein bana kar cart clear karta hai
   const handleCheckout = useCallback(async () => {
     setCheckoutError("");
-    const result = await checkout();
-
-    if (result.success) {
-      setLocalItems([]); // optimistic clear
-      setCheckoutAlert(true);
-    } else {
-      setCheckoutError(result.error || "Checkout mein kuch masla ho gaya, dobara try karein.");
+    const result = await startCheckout();
+    if (!result.success) {
+      setCheckoutError(result.error || "Checkout start nahi ho saka, dobara try karein.");
     }
-  }, [checkout]);
+    // success ho to yahan kuch nahi karna — user Stripe page par redirect ho chuka hoga
+  }, [startCheckout]);
 
   return (
     <div className="min-h-screen bg-[#F7F3EC] px-4 py-8 md:px-12 lg:px-24">
@@ -258,10 +255,10 @@ export default function CartPage() {
 
               <button
                 onClick={handleCheckout}
-                disabled={isCheckingOut}
-                className="mt-6 w-full rounded-none bg-[#432817] py-3 text-[10px] font-medium tracking-[0.2em] text-[#EDE6DA] uppercase transition-all hover:bg-[#977150] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isStartingCheckout}
+                className="mt-6 w-full rounded-none bg-[#432817] py-3 text-[10px] font-medium tracking-[0.2em] text-[#EDE6DA] uppercase transition-all hover:bg-[#977150] disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {isCheckingOut ? "Placing order..." : "Proceed to Checkout"}
+                {isStartingCheckout ? "Redirecting to payment..." : "Proceed to Checkout"}
               </button>
 
               {checkoutError && (
