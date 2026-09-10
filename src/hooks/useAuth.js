@@ -23,27 +23,19 @@ export function useAuth() {
 
   const navigate = useNavigate();
 
-  // Profile fetcher function with enforced minimum delay
   const fetchUserProfile = useCallback(async (token) => {
     const startTime = Date.now();
 
     try {
       const response = await fetch(`${API_BASE_URL}/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch user data");
-      }
-
       const data = await response.json();
-
       const elapsedTime = Date.now() - startTime;
       const remainingDelay = Math.max(0, MINIMUM_LOADER_DELAY - elapsedTime);
 
-      if (data.authenticated && data.user) {
+      if (response.ok && data.authenticated && data.user) {
         await new Promise((resolve) => setTimeout(resolve, remainingDelay));
         setUser(data.user);
         localStorage.setItem("user_info", JSON.stringify(data.user));
@@ -74,12 +66,17 @@ export function useAuth() {
     const handleAuthFlow = async () => {
       const searchParams = new URLSearchParams(window.location.search);
       const urlToken = searchParams.get("token");
+      const oauthError = searchParams.get("error");
 
-      // CASE 1: User OAuth Callback with token in URL
+      if (oauthError) {
+        window.history.replaceState(null, "", window.location.pathname);
+        setIsLoading(false);
+        return;
+      }
+
+      // CASE 1: Google OAuth callback with token in URL
       if (urlToken) {
         localStorage.setItem("auth_token", urlToken);
-
-        // Silent URL cleanup
         window.history.replaceState(null, "", window.location.pathname);
 
         const success = await fetchUserProfile(urlToken);
@@ -91,7 +88,6 @@ export function useAuth() {
 
       // CASE 2: Existing saved session check
       const savedToken = localStorage.getItem("auth_token");
-
       if (savedToken) {
         await fetchUserProfile(savedToken);
       } else {
@@ -106,7 +102,6 @@ export function useAuth() {
     window.location.href = `${API_BASE_URL}/auth/google`;
   };
 
-  // Manual Login helper function for Login.jsx
   const login = async (email, password) => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -121,12 +116,37 @@ export function useAuth() {
         throw new Error(data.message || "Invalid email or password");
       }
 
-      // Save token and user info
       localStorage.setItem("auth_token", data.token);
       localStorage.setItem("user_info", JSON.stringify(data.user));
       setUser(data.user);
 
       navigate("/", { replace: true });
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  // New: Signup helper, mirrors login() — Signup.jsx can switch to this
+  // instead of calling fetch directly, so token/user get stored consistently.
+  const signup = async (name, email, password) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to create account.");
+      }
+
+      localStorage.setItem("auth_token", data.token);
+      localStorage.setItem("user_info", JSON.stringify(data.user));
+      setUser(data.user);
+
       return { success: true };
     } catch (err) {
       return { success: false, message: err.message };
@@ -145,6 +165,7 @@ export function useAuth() {
     isLoading,
     loginWithGoogle,
     login,
+    signup,
     logout,
   };
 }
