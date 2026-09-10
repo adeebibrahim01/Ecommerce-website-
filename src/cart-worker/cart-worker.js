@@ -11,6 +11,8 @@ app.use('/*', cors({
 }));
 
 app.get('/', (c) => c.text('Cart Worker is live!'));
+
+// 1. ADD / UPDATE CART ITEM ROUTE
 app.post('/cart/add', async (c) => {
   try {
     const { userId, productId, quantity, name, price, image } = await c.req.json();
@@ -19,7 +21,7 @@ app.post('/cart/add', async (c) => {
       return c.json({ success: false, error: "UserId and ProductId are required!" }, 400);
     }
 
-    const qty = Number(quantity) > 0 ? Number(quantity) : 1;
+    const qty = Number(quantity) !== 0 && Number.isFinite(Number(quantity)) ? Number(quantity) : 1;
     const productPrice = Number(price) || 0;
     const productImage = image || "";
     const db = c.env.DB;
@@ -36,6 +38,11 @@ app.post('/cart/add', async (c) => {
         image = excluded.image
     `).bind(String(userId), String(productId), qty, name || "", productPrice, productImage).run();
 
+    // Agar quantity 0 ya negative ho gayi ho to us row ko clean up kar dein
+    await db.prepare(`
+      DELETE FROM cart WHERE user_id = ? AND product_id = ? AND quantity <= 0
+    `).bind(String(userId), String(productId)).run();
+
     // Updated cart items fetch karein
     const { results } = await db.prepare(`
       SELECT product_id, quantity, user_id, name, price, image 
@@ -43,10 +50,10 @@ app.post('/cart/add', async (c) => {
       WHERE user_id = ?
     `).bind(String(userId)).all();
 
-    return c.json({ 
-      success: true, 
-      message: "Cart successfully updated!", 
-      items: results || [] 
+    return c.json({
+      success: true,
+      message: "Cart successfully updated!",
+      items: results || []
     });
 
   } catch (error) {
@@ -54,7 +61,8 @@ app.post('/cart/add', async (c) => {
     return c.json({ success: false, error: error.message }, 500);
   }
 });
-// 2. GET ALL CART ITEMS ROUTE (Ab cart table se name, price aur image bhi fetch honge)
+
+// 2. GET ALL CART ITEMS ROUTE
 app.get('/cart', async (c) => {
   try {
     const userId = c.req.query('userId');
@@ -92,7 +100,13 @@ app.delete('/cart/remove', async (c) => {
       "DELETE FROM cart WHERE user_id = ? AND product_id = ?"
     ).bind(userId, productId).run();
 
-    return c.json({ success: true, message: "Item cart se remove ho gaya!" });
+    // Updated cart bhi return kar dein taake frontend cache sync rahe
+    const { results } = await db.prepare(`
+      SELECT product_id, quantity, user_id, name, price, image 
+      FROM cart WHERE user_id = ?
+    `).bind(userId).all();
+
+    return c.json({ success: true, message: "Item cart se remove ho gaya!", items: results || [] });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -117,6 +131,86 @@ app.get('/cart/count', async (c) => {
 
     return c.json({ success: true, count: totalCount });
   } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 5. CHECKOUT ROUTE — cart -> order (D1 batch = atomic transaction)
+app.post('/checkout', async (c) => {
+  try {
+    const { userId, shipping, paymentMethod } = await c.req.json();
+
+    if (!userId) {
+      return c.json({ success: false, error: "userId zaroori hai!" }, 400);
+    }
+
+    const db = c.env.DB;
+
+    // Step 1: current cart items uthayein
+    const { results: cartItems } = await db.prepare(`
+      SELECT product_id, name, price, image, quantity
+      FROM cart WHERE user_id = ?
+    `).bind(String(userId)).all();
+
+    if (!cartItems || cartItems.length === 0) {
+      return c.json({ success: false, error: "Cart khali hai, checkout nahi ho sakta." }, 400);
+    }
+
+    // Step 2: totals server-side calculate karein (client ke numbers par
+    // bharosa nahi karte — price manipulation se bachne ke liye)
+    const subtotal = cartItems.reduce(
+      (sum, item) => sum + Number(item.price) * Number(item.quantity),
+      0
+    );
+    const shippingCost = subtotal > 0 ? 10.0 : 0;
+    const total = subtotal + shippingCost;
+
+    const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    // Step 3: order header insert (last_row_id chahiye, isliye alag se .run())
+    const orderInsert = await db.prepare(`
+      INSERT INTO orders (order_number, user_id, subtotal, shipping, total, status, payment_method)
+      VALUES (?, ?, ?, ?, ?, 'paid', ?)
+    `).bind(orderNumber, String(userId), subtotal, shippingCost, total, paymentMethod || "").run();
+
+    const orderId = orderInsert.meta.last_row_id;
+
+    // Step 4: order_items inserts + cart delete — ek batch (atomic) mein
+    const itemStatements = cartItems.map((item) =>
+      db.prepare(`
+        INSERT INTO order_items (order_id, product_id, name, price, image, quantity, line_total)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        orderId,
+        item.product_id,
+        item.name,
+        item.price,
+        item.image,
+        item.quantity,
+        Number(item.price) * Number(item.quantity)
+      )
+    );
+
+    const deleteCartStatement = db.prepare(
+      `DELETE FROM cart WHERE user_id = ?`
+    ).bind(String(userId));
+
+    await db.batch([...itemStatements, deleteCartStatement]);
+
+    return c.json({
+      success: true,
+      message: "Order successfully placed!",
+      order: {
+        id: orderId,
+        orderNumber,
+        subtotal,
+        shipping: shippingCost,
+        total,
+        itemsCount: cartItems.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error in /checkout:", error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });

@@ -9,19 +9,13 @@ export default function CartPage() {
   const navigate = useNavigate();
   const userId = user?.id || user?._id || user?.sub || user?.email;
 
-  const { cartItems, isLoading, removeFromCart, addToCart } = useCart(userId);
+  const { cartItems, isLoading, removeFromCart, addToCart, checkout, isCheckingOut } = useCart(userId);
   const [checkoutAlert, setCheckoutAlert] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
 
   const [localItems, setLocalItems] = useState([]);
 
   // Per-item pending lock (Set of product_ids currently being updated).
-  // FIX: pehle ek hi global `isUpdatingRef` boolean tha jo EK item update
-  // hone par POORI list ka sync 600ms ke liye rok deta tha (chahe koi
-  // unrelated item ho). Ab sirf wahi item lock hota hai jo actually
-  // update ho raha hai, aur lock hatna network response ka wait karta
-  // hai (koi arbitrary setTimeout guess nahi) - is se fast network par
-  // needless UI lock aur slow network par premature unlock, dono khatam
-  // ho gaye.
   const [pendingIds, setPendingIds] = useState(() => new Set());
 
   const addPending = useCallback((id) => {
@@ -37,18 +31,12 @@ export default function CartPage() {
   }, []);
 
   // Sync server cart -> local UI copy, lekin sirf jab koi item pending
-  // update mein na ho (warna abhi jo optimistic value dikha rahe hain
-  // wo cache ke purane snapshot se overwrite ho jayegi).
+  // update mein na ho.
   useEffect(() => {
     if (cartItems && pendingIds.size === 0) {
       setLocalItems(cartItems);
     }
   }, [cartItems, pendingIds]);
-
-  // NOTE: yahan pehle ek extra `refreshCart()` bhi call hoti thi mount
-  // par - lekin useCart ke andar useQuery already `enabled: !!userId`
-  // ke sath khud fetch kar leta hai. Wo extra call sirf DUPLICATE
-  // network request thi - hata di gayi hai (performance fix).
 
   // Optimized Calculations using useMemo
   const { subtotal, shipping, grandTotal } = useMemo(() => {
@@ -114,11 +102,6 @@ export default function CartPage() {
       );
 
       try {
-        // FIX: pehle yahan ek alag raw `fetch()` call thi jo useCart ke
-        // cache/badge-count se disconnect thi. Ab wahi `addToCart`
-        // mutation use ho rahi hai jo increase mein hoti hai, bas
-        // quantity -1 (delta) ke sath - taake cart-icon count, cache
-        // aur is page ka data hamesha sync rahe (single source of truth).
         await addToCart(item.product_id, -1, {
           name: item.name,
           price: item.price,
@@ -132,6 +115,19 @@ export default function CartPage() {
     },
     [addToCart, addPending, removePending, handleRemove]
   );
+
+  // Real checkout — order DB mein bana kar cart clear karta hai
+  const handleCheckout = useCallback(async () => {
+    setCheckoutError("");
+    const result = await checkout();
+
+    if (result.success) {
+      setLocalItems([]); // optimistic clear
+      setCheckoutAlert(true);
+    } else {
+      setCheckoutError(result.error || "Checkout mein kuch masla ho gaya, dobara try karein.");
+    }
+  }, [checkout]);
 
   return (
     <div className="min-h-screen bg-[#F7F3EC] px-4 py-8 md:px-12 lg:px-24">
@@ -261,11 +257,16 @@ export default function CartPage() {
               </div>
 
               <button
-                onClick={() => setCheckoutAlert(true)}
-                className="mt-6 w-full rounded-none bg-[#432817] py-3 text-[10px] font-medium tracking-[0.2em] text-[#EDE6DA] uppercase transition-all hover:bg-[#977150]"
+                onClick={handleCheckout}
+                disabled={isCheckingOut}
+                className="mt-6 w-full rounded-none bg-[#432817] py-3 text-[10px] font-medium tracking-[0.2em] text-[#EDE6DA] uppercase transition-all hover:bg-[#977150] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Proceed to Checkout
+                {isCheckingOut ? "Placing order..." : "Proceed to Checkout"}
               </button>
+
+              {checkoutError && (
+                <p className="mt-2 text-center text-[10px] text-red-600">{checkoutError}</p>
+              )}
             </div>
           </div>
         )}

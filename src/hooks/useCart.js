@@ -59,9 +59,7 @@ export function useCart(userId) {
   | NOTE: `quantity` is treated as a DELTA (can be positive to add or
   | negative to decrease) - it matches the worker's SQL which does
   | `quantity = cart.quantity + excluded.quantity`. Only 0/undefined/NaN
-  | falls back to 1. Passing -1 correctly decreases by one instead of
-  | being forced back to +1 (that forcing was the earlier bug that made
-  | CartPage.jsx bypass this hook with its own raw fetch for decreasing).
+  | falls back to 1.
   |--------------------------------------------------------------------------
   */
   const resolveDelta = (quantity) => {
@@ -221,6 +219,32 @@ export function useCart(userId) {
     },
   });
 
+  /*
+  |--------------------------------------------------------------------------
+  | Checkout Mutation — cart ko order mein convert karta hai (server-side)
+  |--------------------------------------------------------------------------
+  */
+  const checkoutMutation = useMutation({
+    mutationFn: async ({ shipping, paymentMethod } = {}) => {
+      const response = await fetch(`${API_BASE_URL}/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, shipping, paymentMethod }),
+      });
+
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || "Checkout failed");
+      }
+      return resData;
+    },
+    onSuccess: () => {
+      // Server-side cart clear ho chuka hai, ab local cache bhi khali kar dein
+      queryClient.setQueryData(queryKey, { items: [], totalCount: 0 });
+      window.dispatchEvent(new Event("cart-change"));
+    },
+  });
+
   // quantity: pass a positive number to add, a negative number to decrease.
   const addToCart = async (productId, quantity = 1, product = {}) => {
     if (!userId || !productId) return false;
@@ -243,6 +267,17 @@ export function useCart(userId) {
     }
   };
 
+  // options: { shipping?, paymentMethod? } — dono optional hain
+  const checkout = async (options = {}) => {
+    if (!userId) return { success: false, error: "Please log in first." };
+    try {
+      const result = await checkoutMutation.mutateAsync(options);
+      return { success: true, order: result.order };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
   return {
     cartCount: data.totalCount,
     cartItems: data.items,
@@ -250,6 +285,8 @@ export function useCart(userId) {
     refreshCart: refetch,
     addToCart,
     removeFromCart,
+    checkout,
+    isCheckingOut: checkoutMutation.isPending,
     isMutating: addToCartMutation.isPending || removeFromCartMutation.isPending,
   };
 }
