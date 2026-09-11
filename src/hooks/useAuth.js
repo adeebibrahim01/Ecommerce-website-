@@ -39,6 +39,13 @@ export function useAuth() {
         await new Promise((resolve) => setTimeout(resolve, remainingDelay));
         setUser(data.user);
         localStorage.setItem("user_info", JSON.stringify(data.user));
+
+        // Session valid hai lekin email verify nahi hui — chahe user kahin
+        // bhi ho (back button, direct URL, refresh), verify-email pe bhej do.
+        if (!data.user.is_verified && window.location.pathname !== "/verify-email") {
+          navigate("/verify-email", { replace: true });
+        }
+
         return true;
       } else {
         await new Promise((resolve) => setTimeout(resolve, remainingDelay));
@@ -60,7 +67,7 @@ export function useAuth() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     const handleAuthFlow = async () => {
@@ -120,7 +127,7 @@ export function useAuth() {
       localStorage.setItem("user_info", JSON.stringify(data.user));
       setUser(data.user);
 
-      navigate("/", { replace: true });
+      navigate(data.user.is_verified ? "/" : "/verify-email", { replace: true });
       return { success: true };
     } catch (err) {
       return { success: false, message: err.message };
@@ -153,6 +160,58 @@ export function useAuth() {
     }
   };
 
+  const verifyEmail = async (code) => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`${API_BASE_URL}/auth/verify-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Invalid verification code.");
+      }
+
+      // Update local user copy so is_verified reflects immediately
+      setUser((prev) => {
+        const updated = prev ? { ...prev, is_verified: true } : prev;
+        if (updated) localStorage.setItem("user_info", JSON.stringify(updated));
+        return updated;
+      });
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  const resendVerificationCode = async () => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`${API_BASE_URL}/auth/resend-verification`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to resend code.");
+      }
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("auth_token");
     localStorage.removeItem("user_info");
@@ -166,6 +225,8 @@ export function useAuth() {
     loginWithGoogle,
     login,
     signup,
+    verifyEmail,
+    resendVerificationCode,
     logout,
   };
 }

@@ -104,7 +104,7 @@ app.get('/cart', async (c) => {
     const db = c.env.DB;
     const { results } = await db.prepare(`
       SELECT product_id, quantity, user_id, name, price, image FROM cart WHERE user_id = ?
-    `).bind(userId).all();
+    `).bind(String(userId)).all();
     return c.json({ success: true, items: results || [] });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 500);
@@ -112,6 +112,11 @@ app.get('/cart', async (c) => {
 });
 
 // 3. REMOVE ITEM ROUTE
+// FIX: userId/productId ko String() se bind nahi kiya ja raha tha, jabke
+// /cart/add hamesha String(userId) store karta hai. Number vs string
+// mismatch ki wajah se DELETE aur uske baad wali SELECT dono hi kisi row
+// ko match nahi kar pati thi - isliye hamesha items: [] wapis aata tha,
+// chahe baaki products DB mein mojood hi kyun na hon.
 app.delete('/cart/remove', async (c) => {
   try {
     const { userId, productId } = await c.req.json();
@@ -119,10 +124,12 @@ app.delete('/cart/remove', async (c) => {
       return c.json({ success: false, error: "userId aur productId zaroori hain!" }, 400);
     }
     const db = c.env.DB;
-    await db.prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ?").bind(userId, productId).run();
+    await db.prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ?")
+      .bind(String(userId), String(productId))
+      .run();
     const { results } = await db.prepare(`
       SELECT product_id, quantity, user_id, name, price, image FROM cart WHERE user_id = ?
-    `).bind(userId).all();
+    `).bind(String(userId)).all();
     return c.json({ success: true, message: "Item cart se remove ho gaya!", items: results || [] });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 500);
@@ -137,7 +144,7 @@ app.get('/cart/count', async (c) => {
     const db = c.env.DB;
     const result = await db.prepare(
       "SELECT SUM(quantity) as totalCount FROM cart WHERE user_id = ?"
-    ).bind(userId).first();
+    ).bind(String(userId)).first();
     return c.json({ success: true, count: result?.totalCount || 0 });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 500);
@@ -163,7 +170,6 @@ app.post('/create-checkout-session', async (c) => {
 
     const stripe = getStripe(c.env);
 
-    // Har cart item ek Stripe line item banega
     const line_items = cartItems.map((item) => ({
       price_data: {
         currency: 'usd',
@@ -171,17 +177,16 @@ app.post('/create-checkout-session', async (c) => {
           name: item.name,
           images: item.image ? [item.image] : undefined,
         },
-        unit_amount: Math.round(Number(item.price) * 100), // Stripe cents mein leta hai
+        unit_amount: Math.round(Number(item.price) * 100),
       },
       quantity: Number(item.quantity),
     }));
 
-    // Shipping ko bhi ek separate line item ki tarah dikhayein
     line_items.push({
       price_data: {
         currency: 'usd',
         product_data: { name: 'Shipping' },
-        unit_amount: 1000, // $10.00
+        unit_amount: 1000,
       },
       quantity: 1,
     });
@@ -192,7 +197,7 @@ app.post('/create-checkout-session', async (c) => {
       line_items,
       success_url: successUrl || `${c.env.FRONTEND_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancelUrl || `${c.env.FRONTEND_URL}/cart`,
-      metadata: { userId: String(userId) }, // webhook mein yehi userId wapis milega
+      metadata: { userId: String(userId) },
     });
 
     return c.json({ success: true, url: session.url, sessionId: session.id });
@@ -205,14 +210,12 @@ app.post('/create-checkout-session', async (c) => {
 // Step 2: Stripe yahan payment success par call karta hai (server-to-server)
 app.post('/webhook/stripe', async (c) => {
   const sig = c.req.header('stripe-signature');
-  const body = await c.req.text(); // RAW body chahiye signature verify karne ke liye
+  const body = await c.req.text();
 
   const stripe = getStripe(c.env);
   let event;
 
   try {
-    // constructEventAsync — Workers mein Node crypto nahi hota, ye
-    // Web Crypto (SubtleCrypto) use karta hai
     event = await stripe.webhooks.constructEventAsync(body, sig, c.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     console.error("Webhook signature verification failed:", err.message);
@@ -225,9 +228,6 @@ app.post('/webhook/stripe', async (c) => {
 
     if (userId) {
       const db = c.env.DB;
-
-      // Idempotency check — Stripe kabhi kabhi same event dobara bhejta
-      // hai, is se duplicate order nahi banega
       const existing = await db.prepare(
         `SELECT id FROM orders WHERE stripe_session_id = ?`
       ).bind(session.id).first();

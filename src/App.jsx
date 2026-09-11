@@ -15,6 +15,7 @@ import ProductDetail from "./pages/ProductDetail"; // Aapka detail page componen
 import LoginSuccess from "./pages/LoginSuccess";
 import Signup from "./pages/Signup";
 <Route path="/order-success" element={<OrderSuccess />} />
+import VerifyEmail from "./pages/VerifyEmail";
 function MainLayout({ children }) {
   return (
     <>
@@ -89,11 +90,12 @@ function App() {
       {/* Google Auth Redirect Handler - NO Navbar / Footer */}
       <Route path="/login-success" element={<LoginSuccess />} />
 
+
       {/* ==================== 404 ==================== */}
 
       <Route path="*" element={<Navigate to="/" replace />} />
       <Route path="/signup" element={<Signup />} /> {/* 👈 Yahan Signup route add karein */}
-
+      <Route path="/verify-email" element={<VerifyEmail />} />
       // ... baki routes ke sath yeh add karein:
       <Route
         path="/product/:id"

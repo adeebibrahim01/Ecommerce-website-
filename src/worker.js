@@ -146,6 +146,49 @@ const safeUser = (user) => ({
   is_verified: !!user.is_verified,
 });
 
+// ==========================================
+// EMAIL VERIFICATION (OTP via Resend)
+// ==========================================
+
+const OTP_TTL_MINUTES = 10;
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
+}
+
+async function sendVerificationEmail(env, toEmail, name, code) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      // NOTE: 'onboarding@resend.dev' only works for testing (usually only
+      // delivers to the email you signed up to Resend with). For real
+      // users, verify your own domain in the Resend dashboard and set
+      // RESEND_FROM_EMAIL to something like "AURELIA <noreply@yourdomain.com>".
+      from: env.RESEND_FROM_EMAIL || 'AURELIA <onboarding@resend.dev>',
+      to: [toEmail],
+      subject: 'Verify your AURELIA account',
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          <h2 style="color:#432817;">Welcome to AURELIA, ${name}!</h2>
+          <p>Your verification code is:</p>
+          <p style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color:#432817;">${code}</p>
+          <p style="color:#7E7E86; font-size: 13px;">This code expires in ${OTP_TTL_MINUTES} minutes. If you didn't create this account, you can ignore this email.</p>
+        </div>
+      `,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('Resend email error:', errText);
+    throw new Error('Failed to send verification email');
+  }
+}
+
 // 1. Root route check
 app.get('/', (c) => c.text('AURELIA Auth & User API is running smoothly.'));
 
@@ -177,20 +220,29 @@ app.post('/auth/signup', async (c) => {
     }
 
     const passwordHash = await hashPassword(password);
+    const otpCode = generateOTP();
+    const otpExpiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
 
     const result = await c.env.DB.prepare(
-      `INSERT INTO users (name, email, password, role, is_verified, status)
-       VALUES (?, ?, ?, 'user', 0, 'active')`
+      `INSERT INTO users (name, email, password, role, is_verified, status, verification_code, verification_code_expires_at)
+       VALUES (?, ?, ?, 'user', 0, 'active', ?, ?)`
     )
-      .bind(name, email, passwordHash)
+      .bind(name, email, passwordHash, otpCode, otpExpiresAt)
       .run();
 
     const newUserId = result.meta.last_row_id;
     const token = await createSessionToken(newUserId, c.env.JWT_SECRET);
 
+    try {
+      await sendVerificationEmail(c.env, email, name, otpCode);
+    } catch (emailErr) {
+      // Signup ko fail nahi karna — user "resend code" se dobara try kar sakta hai
+      console.error('Could not send verification email:', emailErr);
+    }
+
     return c.json({
       success: true,
-      message: 'Account created successfully!',
+      message: 'Account created! Please check your email for the verification code.',
       token,
       user: { id: newUserId, name, email, picture: '', role: 'user', is_verified: false },
     });
@@ -233,6 +285,33 @@ app.post('/auth/login', async (c) => {
       .run();
 
     const token = await createSessionToken(user.id, c.env.JWT_SECRET);
+
+    // Agar email abhi tak verify nahi hui, to har login attempt pe ek fresh
+    // OTP bhej do — taake user turant verify kar sake (purana code ho sakta
+    // hai expire ho chuka ho, ya pehli email pohanchi hi na ho).
+    if (!user.is_verified) {
+      const otpCode = generateOTP();
+      const otpExpiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+
+      await c.env.DB.prepare(
+        'UPDATE users SET verification_code = ?, verification_code_expires_at = ? WHERE id = ?'
+      )
+        .bind(otpCode, otpExpiresAt, user.id)
+        .run();
+
+      try {
+        await sendVerificationEmail(c.env, user.email, user.name, otpCode);
+      } catch (emailErr) {
+        console.error('Could not send verification email on login:', emailErr);
+      }
+
+      return c.json({
+        success: true,
+        message: 'Please verify your email. A new code has been sent.',
+        token,
+        user: safeUser(user), // is_verified: false
+      });
+    }
 
     return c.json({
       success: true,
@@ -369,6 +448,97 @@ app.get('/auth/me', async (c) => {
   } catch (error) {
     console.error('Database fetch error:', error);
     return c.json({ authenticated: false, message: 'Server database error' }, 500);
+  }
+});
+
+// 6b. Verify Email with OTP (/auth/verify-email)
+app.post('/auth/verify-email', async (c) => {
+  const userId = await getUserIdFromAuth(c);
+  if (!userId) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+
+  try {
+    const { code } = await c.req.json();
+    if (!code) {
+      return c.json({ success: false, message: 'Verification code is required.' }, 400);
+    }
+    if (!c.env.DB) {
+      return c.json({ success: false, message: 'Database connection missing.' }, 500);
+    }
+
+    const user = await c.env.DB.prepare(
+      'SELECT is_verified, verification_code, verification_code_expires_at FROM users WHERE id = ?'
+    )
+      .bind(userId)
+      .first();
+
+    if (!user) {
+      return c.json({ success: false, message: 'User not found.' }, 404);
+    }
+    if (user.is_verified) {
+      return c.json({ success: true, message: 'Email is already verified.' });
+    }
+    if (!user.verification_code || user.verification_code !== code) {
+      return c.json({ success: false, message: 'Invalid verification code.' }, 400);
+    }
+    if (!user.verification_code_expires_at || new Date(user.verification_code_expires_at) < new Date()) {
+      return c.json({ success: false, message: 'Code has expired. Please request a new one.' }, 400);
+    }
+
+    await c.env.DB.prepare(
+      `UPDATE users
+       SET is_verified = 1, verification_code = NULL, verification_code_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    )
+      .bind(userId)
+      .run();
+
+    return c.json({ success: true, message: 'Email verified successfully!' });
+  } catch (error) {
+    console.error('Verify email error:', error);
+    return c.json({ success: false, message: 'Internal server error during verification.' }, 500);
+  }
+});
+
+// 6c. Resend Verification Code (/auth/resend-verification)
+app.post('/auth/resend-verification', async (c) => {
+  const userId = await getUserIdFromAuth(c);
+  if (!userId) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+
+  try {
+    if (!c.env.DB) {
+      return c.json({ success: false, message: 'Database connection missing.' }, 500);
+    }
+
+    const user = await c.env.DB.prepare('SELECT name, email, is_verified FROM users WHERE id = ?')
+      .bind(userId)
+      .first();
+
+    if (!user) {
+      return c.json({ success: false, message: 'User not found.' }, 404);
+    }
+    if (user.is_verified) {
+      return c.json({ success: true, message: 'Email is already verified.' });
+    }
+
+    const otpCode = generateOTP();
+    const otpExpiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+
+    await c.env.DB.prepare(
+      'UPDATE users SET verification_code = ?, verification_code_expires_at = ? WHERE id = ?'
+    )
+      .bind(otpCode, otpExpiresAt, userId)
+      .run();
+
+    await sendVerificationEmail(c.env, user.email, user.name, otpCode);
+
+    return c.json({ success: true, message: 'A new verification code has been sent.' });
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    return c.json({ success: false, message: 'Failed to resend verification code.' }, 500);
   }
 });
 

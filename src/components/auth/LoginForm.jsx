@@ -7,7 +7,6 @@ export default function LoginForm() {
   const { user, isLoading, loginWithGoogle, login } = useAuth();
   const navigate = useNavigate();
 
-  // New state for manual login
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -28,23 +27,28 @@ export default function LoginForm() {
 
     setSubmitting(true);
     const result = await login(formData.email, formData.password);
-    
+
     if (!result?.success) {
       setErrorMessage(result?.message || "Invalid email or password.");
       setSubmitting(false);
     }
+    // success case: login() itself navigates (to "/" or "/verify-email"
+    // depending on is_verified), so nothing else to do here.
   };
 
-  // Redirect to home `/` seamlessly if authenticated
+  // FIX: pehle yeh sirf `user` ko check karta tha, is_verified ko nahi —
+  // is liye ek unverified user bhi (jaise back button dabane par, session
+  // restore hone par) seedha home pe bhej diya jata tha, jabke actually
+  // usne apna email abhi verify hi nahi kiya tha.
   const userId = user?.id || user?._id || user?.email;
+  const isVerified = user?.is_verified;
 
   useEffect(() => {
     if (!isLoading && user) {
-      navigate("/", { replace: true });
+      navigate(isVerified ? "/" : "/verify-email", { replace: true });
     }
-  }, [userId, isLoading, navigate]);
+  }, [userId, isVerified, isLoading, navigate]);
 
-  // Direct Redirection Fallback Handler
   const handleGoogleLogin = (e) => {
     e.preventDefault();
     if (typeof loginWithGoogle === "function") {
@@ -54,12 +58,10 @@ export default function LoginForm() {
     }
   };
 
-  // Luxury Full-Screen Loading Overlay to completely fix layout blinking
   if (isLoading) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#EDE6DA] text-[#432817]">
         <div className="relative flex items-center justify-center">
-          {/* Animated luxury ring */}
           <div className="h-20 w-20 animate-spin rounded-full border-b-2 border-[#977150]" />
           <span className="absolute font-serif text-xs tracking-[0.25em]">A</span>
         </div>
@@ -74,7 +76,6 @@ export default function LoginForm() {
     <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
       <div className="grid min-h-screen lg:grid-cols-2">
 
-        {/* LEFT — FASHION IMAGE */}
         <section className="relative hidden min-h-screen overflow-hidden lg:block">
           <img
             src="https://images.unsplash.com/photo-1772714601004-23b94ae3913d?auto=format&fit=crop&fm=jpg&q=85&w=1600"
@@ -83,7 +84,6 @@ export default function LoginForm() {
           />
           <div className="absolute inset-0 bg-[#432817]/10" />
 
-          {/* Top logo */}
           <div className="absolute left-10 top-9 z-10">
             <button
               type="button"
@@ -110,10 +110,8 @@ export default function LoginForm() {
           </div>
         </section>
 
-        {/* RIGHT — LOGIN */}
         <section className="relative flex min-h-screen flex-col">
 
-          {/* Mobile Header */}
           <header className="flex items-center justify-between px-6 py-7 lg:hidden">
             <button
               type="button"
@@ -127,7 +125,6 @@ export default function LoginForm() {
             </span>
           </header>
 
-          {/* Form Area */}
           <div className="flex flex-1 items-center justify-center px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
             <div className="w-full max-w-md">
 
@@ -149,7 +146,6 @@ export default function LoginForm() {
 
               <div className="my-10 h-px w-full bg-[#D1B79E]/60" />
 
-              {/* Manual Login Form */}
               <form onSubmit={handleManualLogin} className="mb-6 flex flex-col gap-4">
                 <div>
                   <label className="mb-1.5 block text-[10px] font-medium tracking-[0.15em] text-[#432817] uppercase">
@@ -204,7 +200,6 @@ export default function LoginForm() {
                 <div className="h-px flex-1 bg-[#D1B79E]/60" />
               </div>
 
-              {/* Google Button */}
               <button
                 type="button"
                 onClick={handleGoogleLogin}

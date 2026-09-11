@@ -49,9 +49,9 @@ export default function Signup() {
       return;
     }
 
-    setSuccessMessage("Account created successfully! Redirecting...");
+    setSuccessMessage("Account created! Redirecting to email verification...");
     setTimeout(() => {
-      navigate("/");
+      navigate("/verify-email");
     }, 1500);
   };
 
