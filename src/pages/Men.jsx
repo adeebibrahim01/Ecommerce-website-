@@ -1,7 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SlidersHorizontal, ChevronDown } from "lucide-react";
-
-import menProducts from "../data/men";
 
 import ProductCard from "../components/shop/ProductCard";
 import ProductFilters from "../components/shop/ProductFilters";
@@ -9,24 +7,114 @@ import ProductSort from "../components/shop/ProductSort";
 import { useCart } from "../hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
 
+// FIX: pehle ye component `data/men.js` (static hardcoded file) se
+// products le raha tha. Ab is ko database se lena hai — product-worker
+// ka public `/products` endpoint (koi auth nahi chahiye) use kar rahe
+// hain, jo `category` aur `filterCategory` query params support karta
+// hai (worker code dekho: WHERE category = ? AND filter_category = ?).
+//
+// IMPORTANT: apna actual product-worker URL yahan set karo — best
+// tareeqa .env file mein VITE_PRODUCT_API_URL daalna hai, e.g.:
+//   VITE_PRODUCT_API_URL=https://aurelia-product-worker.your-subdomain.workers.dev
+const API_BASE =
+  import.meta.env.VITE_PRODUCT_API_URL || "https://product-worker-service.adeebibrahim01.workers.dev";
+
+// Worker ka /products endpoint max limit=50 per page allow karta hai,
+// is liye agar category mein 50 se zyada products hon to hum pagination
+// loop laga kar sab pages khींch lete hain (backend pe sab dikhane ke liye).
+async function fetchAllProductsByCategory(category, signal) {
+  const all = [];
+  let page = 1;
+  const limit = 50;
+
+  while (true) {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    if (category) params.set("category", category);
+
+    const res = await fetch(`${API_BASE}/products?${params.toString()}`, {
+      signal,
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to load products (status ${res.status})`);
+    }
+
+    const data = await res.json();
+    if (!data?.success) {
+      throw new Error(data?.message || "Failed to load products.");
+    }
+
+    all.push(...(data.products || []));
+
+    const total = data.total || 0;
+    if (all.length >= total || (data.products || []).length < limit) {
+      break;
+    }
+    page += 1;
+  }
+
+  return all;
+}
+
+// Worker se aane wala row snake_case mein hai (filter_category, sale_price
+// wagera), lekin UI (ProductFilters/ProductSort/ProductCard) camelCase
+// expect karti hai jaisa pehle `data/men.js` deta tha. Yahan normalize
+// kar rahe hain taake neeche ka baqi code bilkul same rahe.
+function normalizeProduct(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    price: row.sale_price ?? row.price,
+    image: row.image,
+    category: row.category,
+    filterCategory: row.filter_category,
+    type: row.type,
+    badge: row.badge,
+    featured: row.featured,
+    createdAt: row.created_at,
+  };
+}
+
 export default function ProductGrid({ category, userId: userIdProp }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("featured");
 
-  // FIX: pehle is component ko sirf parent se `userId` prop milne ki
-  // ummeed thi. Agar jis page/route pe ye render hoti thi wahan prop
-  // pass hi nahi ki gayi thi (ya galat cheez pass ho rahi thi, jaise
-  // pura `user` object instead of `user.id`), to `userId` hamesha
-  // undefined rehta tha - is liye "Please log in first" dikhta tha
-  // chahe login ho chuka ho. Ab `useAuth()` se seedha DB-backed user
-  // nikalte hain (jaisa ProductCard.jsx pehle se karta hai) aur agar
-  // koi prop di gayi ho to usay sirf override ke tor pe istemal karte
-  // hain - is se ye component kisi bhi page pe kaam karega, prop pass
-  // ho ya na ho.
+  const [products, setProducts] = useState([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
   const { user } = useAuth();
   const userId = userIdProp || user?.id;
 
   const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
+
+  // Database se products laana hai jab bhi `category` (page ka prop, jaise
+  // "men") change ho. Baqi filtering (selectedCategory) aur sorting client
+  // side hi hoti hai, taake UI turant respond kare aur bar bar API call na ho.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setIsLoadingProducts(true);
+    setLoadError("");
+
+    fetchAllProductsByCategory(category, controller.signal)
+      .then((rows) => {
+        setProducts(rows.map(normalizeProduct));
+      })
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        console.error("Product fetch error:", err);
+        setLoadError(err.message || "Failed to load products.");
+      })
+      .finally(() => {
+        setIsLoadingProducts(false);
+      });
+
+    return () => controller.abort();
+  }, [category]);
 
   const handleAddToCart = async (product) => {
     if (!userId) {
@@ -47,14 +135,7 @@ export default function ProductGrid({ category, userId: userIdProp }) {
   };
 
   const filteredAndSortedProducts = useMemo(() => {
-    let result = [...menProducts];
-
-    if (category) {
-      result = result.filter(
-        (product) =>
-          product.category?.toLowerCase() === category.toLowerCase()
-      );
-    }
+    let result = [...products];
 
     if (selectedCategory !== "All") {
       result = result.filter(
@@ -97,7 +178,7 @@ export default function ProductGrid({ category, userId: userIdProp }) {
     }
 
     return result;
-  }, [category, selectedCategory, sortBy]);
+  }, [products, selectedCategory, sortBy]);
 
   const isProductInCart = (productId) => {
     if (!cartItems) return false;
@@ -190,7 +271,27 @@ export default function ProductGrid({ category, userId: userIdProp }) {
       </div>
 
       <div className="relative mx-auto max-w-[1600px] px-4 py-10 sm:px-8 sm:py-12 lg:px-12 lg:py-16 xl:px-16">
-        {filteredAndSortedProducts.length > 0 ? (
+        {isLoadingProducts ? (
+          <div className="flex min-h-[460px] items-center justify-center">
+            <p className="text-xs tracking-[0.16em] text-[#8A8177] uppercase">
+              Loading products...
+            </p>
+          </div>
+        ) : loadError ? (
+          <div className="flex min-h-[460px] items-center justify-center">
+            <div className="max-w-md text-center">
+              <p className="mb-3 text-[9px] font-semibold tracking-[0.25em] text-[#8A8177] uppercase">
+                Something went wrong
+              </p>
+              <h3 className="font-serif text-2xl text-[#432817]">
+                Couldn't load products
+              </h3>
+              <p className="mx-auto mt-3 max-w-sm text-xs leading-6 text-[#7E7E86]">
+                {loadError}
+              </p>
+            </div>
+          </div>
+        ) : filteredAndSortedProducts.length > 0 ? (
           <>
             <div className="mb-9 flex items-end justify-between gap-6 lg:mb-12">
               <div>
