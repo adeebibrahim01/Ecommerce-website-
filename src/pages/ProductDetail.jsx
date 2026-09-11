@@ -1,144 +1,85 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Heart, ShoppingBag, ArrowLeft, Minus, Plus } from "lucide-react";
+import { Heart, ShoppingBag, ArrowLeft, Minus, Plus, Check } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
-import menProducts from "../data/men"; // <-- Men products data import karein
-
-const CART_ADD_API_URL =
-  "https://cart-worker-service.adeebibrahim01.workers.dev/cart/add";
+import { useCart } from "../hooks/useCart";
+import menProducts from "../data/men";
 
 export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const activeUserId = user?.id || user?._id || user?.sub || user?.email || null;
+
+  // Same hook, same query key ("cart", activeUserId) as Navbar and CartPage —
+  // so an add here is instantly visible everywhere else, no custom events needed.
+  const { cartItems, addToCart, isMutating } = useCart(activeUserId);
+
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   const [quantity, setQuantity] = useState(1);
   const [liked, setLiked] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [addedToCart, setAddedToCart] = useState(false);
   const [cartMessage, setCartMessage] = useState("");
+  const [cartMessageTone, setCartMessageTone] = useState("neutral"); // "good" | "bad"
 
-  // Dynamically product find karein ID ke base par
+  // Find the product by id.
   useEffect(() => {
-    const fetchProductDetails = () => {
-      setLoading(true);
-      try {
-        // Agar aapke paas real API hai toh yahan fetch laga sakte hain:
-        // const res = await fetch(`YOUR_API_URL/${id}`);
-        // const data = await res.json();
-
-        // Filhal menProducts array mein se id match karke dynamic product nikal rahe hain
-        const foundProduct = menProducts.find(
-          (p) => String(p.id) === String(id)
-        );
-
-        if (foundProduct) {
-          setProduct(foundProduct);
-          setError(null);
-        } else {
-          setError("Product not found.");
-        }
-      } catch (err) {
-        console.error("Error fetching product:", err);
-        setError("Failed to load product details.");
-      } finally {
-        setLoading(false);
+    if (!id) return;
+    setLoading(true);
+    try {
+      const foundProduct = menProducts.find((p) => String(p.id) === String(id));
+      if (foundProduct) {
+        setProduct(foundProduct);
+        setError(null);
+      } else {
+        setError("Product not found.");
       }
-    };
-
-    if (id) {
-      fetchProductDetails();
+    } catch (err) {
+      console.error("Error loading product:", err);
+      setError("Failed to load product details.");
+    } finally {
+      setLoading(false);
     }
   }, [id]);
 
-  // Check karein ke kya yeh item pehle se cart mein hai
-  useEffect(() => {
-    try {
-      const activeUserId = user?.id || user?._id || user?.sub || user?.email || 'guest';
-      const savedCart = localStorage.getItem(`cart_items_${activeUserId}`);
-      if (savedCart) {
-        const parsed = JSON.parse(savedCart);
-        const exists = parsed.some((item) => String(item.productId || item.product_id) === String(id));
-        if (exists) setAddedToCart(true);
-      }
-    } catch {
-      // Ignore
-    }
-  }, [id, user]);
+  // How many of this product are already in the bag — purely informational.
+  const existingQuantity = (cartItems || [])
+    .filter((item) => String(item.productId || item.product_id) === String(id))
+    .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
   const handleAddToCart = async () => {
-    if (isAdding || addedToCart || !product) return;
-
-    const activeUserId = user?.id || user?._id || user?.sub || user?.email;
+    if (!product) return;
 
     if (!activeUserId) {
-      setCartMessage("Please sign in first.");
+      setCartMessageTone("bad");
+      setCartMessage("Please sign in to add items to your bag.");
       setTimeout(() => navigate("/login"), 1000);
       return;
     }
 
-    setIsAdding(true);
     setCartMessage("");
 
-    try {
-      const response = await fetch(CART_ADD_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: String(activeUserId),
-          productId: String(product.id),
-          quantity: quantity,
-          name: product.name,
-          price: typeof product.price === "number" ? product.price : parseFloat(String(product.price).replace(/[^0-9.]/g, "")) || 0,
-          image: product.image || "",
-        }),
-      });
+    // `quantity` here is a delta — "how many more to add" — matching how
+    // useCart's /cart/add mutation and the backend SQL treat it everywhere else.
+    const ok = await addToCart(product.id, quantity, {
+      name: product.name,
+      price:
+        typeof product.price === "number"
+          ? product.price
+          : parseFloat(String(product.price).replace(/[^0-9.]/g, "")) || 0,
+      image: product.image || "",
+    });
 
-      const responseText = await response.text();
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        throw new Error("Server error (Invalid JSON)");
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Failed to add item.");
-      }
-
-      setAddedToCart(true);
-      setCartMessage("Added to cart successfully");
-
-      // LocalStorage mein save karein persistence ke liye
-      try {
-        const storageKey = `cart_items_${activeUserId}`;
-        const savedCart = localStorage.getItem(storageKey);
-        let parsedCart = savedCart ? JSON.parse(savedCart) : [];
-        
-        if (!parsedCart.some((item) => String(item.productId || item.product_id) === String(product.id))) {
-          parsedCart.push({ 
-            productId: String(product.id), 
-            name: product.name, 
-            price: product.price, 
-            image: product.image, 
-            quantity 
-          });
-          localStorage.setItem(storageKey, JSON.stringify(parsedCart));
-        }
-      } catch {
-        // Ignore
-      }
-
-      window.dispatchEvent(new Event("cart-change"));
-    } catch (err) {
-      console.error("Cart error:", err);
-      setCartMessage(err.message || "Something went wrong.");
-    } finally {
-      setIsAdding(false);
+    if (ok) {
+      setCartMessageTone("good");
+      setCartMessage(`Added ${quantity} to your bag.`);
+      setQuantity(1);
+    } else {
+      setCartMessageTone("bad");
+      setCartMessage("Something went wrong adding this to your bag. Please try again.");
     }
   };
 
@@ -166,7 +107,6 @@ export default function ProductDetail() {
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-12 sm:px-8 md:px-12 lg:px-16">
-      {/* Back Button */}
       <button
         onClick={() => navigate(-1)}
         className="group mb-8 flex items-center gap-2 text-[10px] font-medium tracking-[0.2em] text-[#7E7E86] uppercase transition hover:text-[#432817]"
@@ -175,20 +115,13 @@ export default function ProductDetail() {
         Back to collection
       </button>
 
-      {/* Main Grid */}
       <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
         {/* Product Image */}
         <div className="relative aspect-[3/4] overflow-hidden bg-[#D1B79E]/30">
           {product.image ? (
-            <img
-              src={product.image}
-              alt={product.name}
-              className="h-full w-full object-cover"
-            />
+            <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-[#7E7E86]">
-              No Image Available
-            </div>
+            <div className="flex h-full w-full items-center justify-center text-[#7E7E86]">No Image Available</div>
           )}
           {product.badge && (
             <div className="absolute left-4 top-4 bg-[#EDE6DA] px-3 py-1.5">
@@ -199,17 +132,13 @@ export default function ProductDetail() {
           )}
         </div>
 
-        {/* Product Details info */}
+        {/* Product Details */}
         <div className="flex flex-col justify-center">
           {product.category && (
-            <p className="mb-3 text-[10px] tracking-[0.25em] text-[#7E7E86] uppercase">
-              {product.category}
-            </p>
+            <p className="mb-3 text-[10px] tracking-[0.25em] text-[#7E7E86] uppercase">{product.category}</p>
           )}
 
-          <h1 className="font-serif text-3xl text-[#432817] sm:text-4xl">
-            {product.name}
-          </h1>
+          <h1 className="font-serif text-3xl text-[#432817] sm:text-4xl">{product.name}</h1>
 
           <p className="mt-4 text-xl font-medium text-[#432817]">
             {typeof product.price === "number" ? `$${product.price.toLocaleString()}` : product.price}
@@ -218,25 +147,36 @@ export default function ProductDetail() {
           <div className="my-6 h-[1px] w-full bg-[#D1B79E]/40" />
 
           <p className="text-sm leading-relaxed text-[#7E7E86]">
-            {product.description || "Crafted with precision and premium materials, this piece offers timeless elegance and exceptional comfort for any occasion."}
+            {product.description ||
+              "Crafted with precision and premium materials, this piece offers timeless elegance and exceptional comfort for any occasion."}
           </p>
 
-          {/* Quantity Selector */}
+          {existingQuantity > 0 && (
+            <p className="mt-4 text-[10px] tracking-wide text-[#6F7663]">
+              {existingQuantity} already in your bag.
+            </p>
+          )}
+
+          {/* Quantity Selector — how many to add, never disabled */}
           <div className="mt-8 flex items-center gap-6">
-            <span className="text-[10px] tracking-[0.2em] text-[#432817] uppercase font-medium">Quantity</span>
+            <span className="text-[10px] font-medium tracking-[0.2em] text-[#432817] uppercase">Quantity</span>
             <div className="flex items-center border border-[#D1B79E] bg-white">
               <button
+                type="button"
                 onClick={() => setQuantity((prev) => Math.max(1, prev - 1))}
-                className="px-3 py-2 text-[#432817] hover:bg-[#EDE6DA]"
-                disabled={addedToCart}
+                className="px-3 py-2 text-[#432817] transition hover:bg-[#EDE6DA] disabled:opacity-30"
+                disabled={quantity <= 1}
+                aria-label="Decrease quantity"
               >
                 <Minus size={14} />
               </button>
               <span className="w-8 text-center text-xs font-medium text-[#432817]">{quantity}</span>
               <button
-                onClick={() => setQuantity((prev) => prev + 1)}
-                className="px-3 py-2 text-[#432817] hover:bg-[#EDE6DA]"
-                disabled={addedToCart}
+                type="button"
+                onClick={() => setQuantity((prev) => Math.min(99, prev + 1))}
+                className="px-3 py-2 text-[#432817] transition hover:bg-[#EDE6DA] disabled:opacity-30"
+                disabled={quantity >= 99}
+                aria-label="Increase quantity"
               >
                 <Plus size={14} />
               </button>
@@ -246,34 +186,40 @@ export default function ProductDetail() {
           {/* Action Buttons */}
           <div className="mt-8 flex items-center gap-4">
             <button
+              type="button"
               onClick={handleAddToCart}
-              disabled={isAdding || addedToCart}
-              className={`flex flex-1 items-center justify-center gap-3 py-4 text-[10px] font-medium tracking-[0.2em] uppercase transition-all ${
-                addedToCart
-                  ? "bg-[#6F7663] text-[#F7F3EC] cursor-not-allowed"
-                  : "bg-[#432817] text-[#EDE6DA] hover:bg-[#5a3720]"
-              }`}
+              disabled={isMutating}
+              className={`flex flex-1 items-center justify-center gap-3 py-4 text-[10px] font-medium tracking-[0.2em] uppercase transition-all ${isMutating ? "cursor-wait bg-[#8a7a67] text-[#EDE6DA]" : "bg-[#432817] text-[#EDE6DA] hover:bg-[#5a3720]"
+                }`}
             >
-              <ShoppingBag size={16} strokeWidth={1.5} />
-              {isAdding ? "Adding..." : addedToCart ? "Added to Cart" : "Add to Cart"}
+              {isMutating ? (
+                "Adding..."
+              ) : (
+                <>
+                  <ShoppingBag size={16} strokeWidth={1.5} /> Add to Cart
+                </>
+              )}
             </button>
 
-            {/* Wishlist Toggle */}
             <button
+              type="button"
               onClick={() => setLiked((prev) => !prev)}
               aria-label="Wishlist"
-              className={`flex h-13 w-13 items-center justify-center border transition-all ${
-                liked
+              className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center border transition-all ${liked
                   ? "border-[#432817] bg-[#432817] text-[#EDE6DA]"
                   : "border-[#D1B79E] text-[#432817] hover:border-[#432817]"
-              }`}
+                }`}
             >
               <Heart size={18} strokeWidth={1.5} fill={liked ? "currentColor" : "none"} />
             </button>
           </div>
 
           {cartMessage && (
-            <p className={`mt-3 text-[10px] tracking-wide ${addedToCart ? "text-[#6F7663]" : "text-red-600"}`}>
+            <p
+              className={`mt-3 flex items-center gap-1.5 text-[10px] tracking-wide ${cartMessageTone === "good" ? "text-[#6F7663]" : "text-red-600"
+                }`}
+            >
+              {cartMessageTone === "good" && <Check size={12} />}
               {cartMessage}
             </p>
           )}
