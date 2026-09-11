@@ -16,6 +16,8 @@ import LoginSuccess from "./pages/LoginSuccess";
 import Signup from "./pages/Signup";
 <Route path="/order-success" element={<OrderSuccess />} />
 import VerifyEmail from "./pages/VerifyEmail";
+import AdminRoute from "./components/auth/AdminRoute";
+import AdminDashboard from "./pages/admin/AdminDashboard";
 function MainLayout({ children }) {
   return (
     <>
@@ -105,6 +107,15 @@ function App() {
               <ProductDetail userId={userId} />
             </MainLayout>
           </ProtectedRoute>
+        }
+      />
+      // routes ke andar:
+      <Route
+        path="/admin"
+        element={
+          <AdminRoute>
+            <AdminDashboard />
+          </AdminRoute>
         }
       />
     </Routes>

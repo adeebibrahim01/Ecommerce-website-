@@ -4,7 +4,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { Mail, Lock } from "lucide-react";
 
 export default function LoginForm() {
-  const { user, isLoading, loginWithGoogle, login } = useAuth();
+  const { user, isLoading, isAdmin, loginWithGoogle, login } = useAuth();
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({ email: "", password: "" });
@@ -26,28 +26,26 @@ export default function LoginForm() {
     }
 
     setSubmitting(true);
+    // login() already persists the session and navigates by role (admin -> /admin, user -> /).
     const result = await login(formData.email, formData.password);
 
     if (!result?.success) {
       setErrorMessage(result?.message || "Invalid email or password.");
       setSubmitting(false);
     }
-    // success case: login() itself navigates (to "/" or "/verify-email"
-    // depending on is_verified), so nothing else to do here.
   };
 
-  // FIX: pehle yeh sirf `user` ko check karta tha, is_verified ko nahi —
-  // is liye ek unverified user bhi (jaise back button dabane par, session
-  // restore hone par) seedha home pe bhej diya jata tha, jabke actually
-  // usne apna email abhi verify hi nahi kiya tha.
   const userId = user?.id || user?._id || user?.email;
-  const isVerified = user?.is_verified;
 
+  // Only handles the "already logged in and lands on /login directly" case —
+  // NOT the redirect-on-fresh-login, which login() above already does.
+  // IMPORTANT: this must be role-aware, or it will race with and override
+  // the navigate("/admin") that just happened inside login().
   useEffect(() => {
     if (!isLoading && user) {
-      navigate(isVerified ? "/" : "/verify-email", { replace: true });
+      navigate(isAdmin ? "/admin" : "/", { replace: true });
     }
-  }, [userId, isVerified, isLoading, navigate]);
+  }, [userId, isLoading, isAdmin, navigate]);
 
   const handleGoogleLogin = (e) => {
     e.preventDefault();
@@ -75,7 +73,7 @@ export default function LoginForm() {
   return (
     <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
       <div className="grid min-h-screen lg:grid-cols-2">
-
+        {/* LEFT — FASHION IMAGE */}
         <section className="relative hidden min-h-screen overflow-hidden lg:block">
           <img
             src="https://images.unsplash.com/photo-1772714601004-23b94ae3913d?auto=format&fit=crop&fm=jpg&q=85&w=1600"
@@ -110,8 +108,8 @@ export default function LoginForm() {
           </div>
         </section>
 
+        {/* RIGHT — LOGIN */}
         <section className="relative flex min-h-screen flex-col">
-
           <header className="flex items-center justify-between px-6 py-7 lg:hidden">
             <button
               type="button"
@@ -127,7 +125,6 @@ export default function LoginForm() {
 
           <div className="flex flex-1 items-center justify-center px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
             <div className="w-full max-w-md">
-
               <div className="mb-7 flex items-center gap-3">
                 <span className="h-px w-8 bg-[#977150]" />
                 <span className="text-[10px] font-medium tracking-[0.3em] text-[#977150] uppercase">
@@ -205,14 +202,7 @@ export default function LoginForm() {
                 onClick={handleGoogleLogin}
                 className="group flex w-full items-center justify-center gap-4 border border-[#A78361] bg-transparent px-6 py-4 text-sm font-medium tracking-[0.08em] text-[#432817] transition-all duration-300 hover:bg-[#432817] hover:text-[#EDE6DA]"
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="shrink-0"
-                >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
                   <path d="M21.805 12.23c0-.79-.064-1.57-.203-2.31H12v4.37h5.5a4.7 4.7 0 0 1-2.04 3.09v2.57h3.3c1.93-1.78 3.045-4.4 3.045-7.72Z" fill="#4285F4" />
                   <path d="M12 22c2.755 0 5.063-.91 6.75-2.46l-3.3-2.57c-.916.61-2.087.98-3.45.98-2.655 0-4.91-1.795-5.717-4.21H2.87v2.65A10.195 10.195 0 0 0 12 22Z" fill="#34A853" />
                   <path d="M6.283 13.74A6.12 6.12 0 0 1 5.96 12c0-.605.106-1.19.323-1.74V7.61H2.87A10 10 0 0 0 1.805 12c0 1.61.386 3.13 1.065 4.39l3.413-2.65Z" fill="#FBBC05" />
@@ -236,7 +226,7 @@ export default function LoginForm() {
                     <path d="m9 12 2 2 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <p className="text-xs leading-5 text-[#7E7E86]">
-                    Your account is securely authenticated. We never store your passwords securely.
+                    Your account is securely authenticated. We never store your passwords in plain text.
                   </p>
                 </div>
               </div>
@@ -250,7 +240,6 @@ export default function LoginForm() {
                   Create an account
                 </Link>
               </div>
-
             </div>
           </div>
 
@@ -260,7 +249,6 @@ export default function LoginForm() {
             </p>
           </footer>
         </section>
-
       </div>
     </main>
   );

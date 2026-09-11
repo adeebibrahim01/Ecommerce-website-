@@ -6,7 +6,7 @@ const app = new Hono();
 app.use('*', async (c, next) => {
   const corsMiddleware = cors({
     origin: (origin) => origin || '*',
-    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
@@ -15,8 +15,6 @@ app.use('*', async (c, next) => {
 
 // ==========================================
 // PASSWORD HASHING (PBKDF2 via Web Crypto)
-// bcrypt needs native bindings which Cloudflare Workers doesn't support.
-// PBKDF2-SHA256 with 100k iterations is the standard edge-safe alternative.
 // ==========================================
 
 const PBKDF2_ITERATIONS = 100000;
@@ -69,7 +67,6 @@ async function verifyPassword(password, stored) {
   );
   const actualHash = bufToBase64(derivedBits);
 
-  // constant-time compare
   if (actualHash.length !== expectedHash.length) return false;
   let diff = 0;
   for (let i = 0; i < actualHash.length; i++) {
@@ -80,8 +77,6 @@ async function verifyPassword(password, stored) {
 
 // ==========================================
 // SESSION TOKENS (HMAC-signed, stateless)
-// Old code was returning the raw userId as the "token" — anyone could
-// impersonate any user by just sending their id. This signs it instead.
 // ==========================================
 
 const TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
@@ -129,7 +124,6 @@ async function verifySessionToken(token, secret) {
   }
 }
 
-// Reads + verifies the token from the Authorization header. Returns userId or null.
 const getUserIdFromAuth = async (c) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader) return null;
@@ -147,13 +141,44 @@ const safeUser = (user) => ({
 });
 
 // ==========================================
+// ADMIN GUARD
+// Verifies the token AND checks the role column in the DB (never trust a
+// role claim from the client — always re-read it from the users table).
+// Attaches the resolved user row to c.set('adminUser', ...) for handlers.
+// ==========================================
+
+async function requireAdmin(c, next) {
+  const userId = await getUserIdFromAuth(c);
+  if (!userId) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+  if (!c.env.DB) {
+    return c.json({ success: false, message: 'Database connection missing.' }, 500);
+  }
+
+  const user = await c.env.DB.prepare('SELECT id, role, status FROM users WHERE id = ?')
+    .bind(userId)
+    .first();
+
+  if (!user || user.status !== 'active') {
+    return c.json({ success: false, message: 'Account not found or inactive.' }, 403);
+  }
+  if (user.role !== 'admin') {
+    return c.json({ success: false, message: 'Forbidden: admin access required.' }, 403);
+  }
+
+  c.set('adminUserId', user.id);
+  await next();
+}
+
+// ==========================================
 // EMAIL VERIFICATION (OTP via Resend)
 // ==========================================
 
 const OTP_TTL_MINUTES = 10;
 
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 async function sendVerificationEmail(env, toEmail, name, code) {
@@ -164,10 +189,6 @@ async function sendVerificationEmail(env, toEmail, name, code) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      // NOTE: 'onboarding@resend.dev' only works for testing (usually only
-      // delivers to the email you signed up to Resend with). For real
-      // users, verify your own domain in the Resend dashboard and set
-      // RESEND_FROM_EMAIL to something like "AURELIA <noreply@yourdomain.com>".
       from: env.RESEND_FROM_EMAIL || 'AURELIA <onboarding@resend.dev>',
       to: [toEmail],
       subject: 'Verify your AURELIA account',
@@ -196,7 +217,6 @@ app.get('/', (c) => c.text('AURELIA Auth & User API is running smoothly.'));
 // MANUAL SIGNUP & LOGIN APIS
 // ==========================================
 
-// 2. Manual Signup API (/auth/signup)
 app.post('/auth/signup', async (c) => {
   try {
     const { name, email, password } = await c.req.json();
@@ -236,7 +256,6 @@ app.post('/auth/signup', async (c) => {
     try {
       await sendVerificationEmail(c.env, email, name, otpCode);
     } catch (emailErr) {
-      // Signup ko fail nahi karna — user "resend code" se dobara try kar sakta hai
       console.error('Could not send verification email:', emailErr);
     }
 
@@ -252,7 +271,6 @@ app.post('/auth/signup', async (c) => {
   }
 });
 
-// 3. Manual Login API (/auth/login)
 app.post('/auth/login', async (c) => {
   try {
     const { email, password } = await c.req.json();
@@ -270,8 +288,6 @@ app.post('/auth/login', async (c) => {
       .bind(email)
       .first();
 
-    // Same generic message whether email doesn't exist or password is wrong —
-    // don't leak which one it was.
     if (!user || !(await verifyPassword(password, user.password))) {
       return c.json({ success: false, message: 'Invalid email or password.' }, 401);
     }
@@ -286,9 +302,6 @@ app.post('/auth/login', async (c) => {
 
     const token = await createSessionToken(user.id, c.env.JWT_SECRET);
 
-    // Agar email abhi tak verify nahi hui, to har login attempt pe ek fresh
-    // OTP bhej do — taake user turant verify kar sake (purana code ho sakta
-    // hai expire ho chuka ho, ya pehli email pohanchi hi na ho).
     if (!user.is_verified) {
       const otpCode = generateOTP();
       const otpExpiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
@@ -309,7 +322,7 @@ app.post('/auth/login', async (c) => {
         success: true,
         message: 'Please verify your email. A new code has been sent.',
         token,
-        user: safeUser(user), // is_verified: false
+        user: safeUser(user),
       });
     }
 
@@ -329,7 +342,6 @@ app.post('/auth/login', async (c) => {
 // GOOGLE OAUTH APIS
 // ==========================================
 
-// 4. Google OAuth Trigger Route
 app.get('/auth/google', (c) => {
   const requestUrl = new URL(c.req.url);
   const redirectUri = `${requestUrl.origin}/auth/google/callback`;
@@ -345,7 +357,6 @@ app.get('/auth/google', (c) => {
   return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 });
 
-// 5. OAuth Callback Route
 app.get('/auth/google/callback', async (c) => {
   const code = c.req.query('code');
   const frontendUrl = c.env.FRONTEND_URL || 'http://localhost:5173';
@@ -387,7 +398,6 @@ app.get('/auth/google/callback', async (c) => {
       return c.redirect(`${frontendUrl}/login?error=database_missing`);
     }
 
-    // Google already verifies email ownership, so is_verified = 1 here.
     await c.env.DB.prepare(
       `INSERT INTO users (google_id, email, name, picture, role, is_verified, status, last_login_at)
        VALUES (?, ?, ?, ?, 'user', 1, 'active', CURRENT_TIMESTAMP)
@@ -421,7 +431,6 @@ app.get('/auth/google/callback', async (c) => {
 // USER PROFILE & DATA MANAGEMENT APIS
 // ==========================================
 
-// 6. Current User Verification Route (/auth/me)
 app.get('/auth/me', async (c) => {
   const userId = await getUserIdFromAuth(c);
 
@@ -451,7 +460,6 @@ app.get('/auth/me', async (c) => {
   }
 });
 
-// 6b. Verify Email with OTP (/auth/verify-email)
 app.post('/auth/verify-email', async (c) => {
   const userId = await getUserIdFromAuth(c);
   if (!userId) {
@@ -501,7 +509,6 @@ app.post('/auth/verify-email', async (c) => {
   }
 });
 
-// 6c. Resend Verification Code (/auth/resend-verification)
 app.post('/auth/resend-verification', async (c) => {
   const userId = await getUserIdFromAuth(c);
   if (!userId) {
@@ -542,7 +549,6 @@ app.post('/auth/resend-verification', async (c) => {
   }
 });
 
-// 7. Update User Profile Data (/user/update)
 app.put('/user/update', async (c) => {
   const userId = await getUserIdFromAuth(c);
   if (!userId) {
@@ -568,11 +574,105 @@ app.put('/user/update', async (c) => {
   }
 });
 
-// 8. Logout Route
-// Tokens are stateless (HMAC-signed) so there's nothing to invalidate server-side.
-// The frontend clearing localStorage is what actually "logs out" the user.
 app.post('/auth/logout', (c) => {
   return c.json({ success: true, message: 'Logged out successfully' });
+});
+
+// ==========================================
+// ADMIN PORTAL APIS  (all guarded by requireAdmin)
+// ==========================================
+
+app.get('/admin/stats', requireAdmin, async (c) => {
+  try {
+    const stats = await c.env.DB.prepare(
+      `SELECT
+         COUNT(*) as total_users,
+         SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as total_admins,
+         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_users,
+         SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked_users,
+         SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END) as verified_users
+       FROM users`
+    ).first();
+
+    return c.json({ success: true, stats });
+  } catch (error) {
+    console.error('Admin stats error:', error);
+    return c.json({ success: false, message: 'Failed to load stats.' }, 500);
+  }
+});
+
+app.get('/admin/users', requireAdmin, async (c) => {
+  try {
+    const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
+    const search = (c.req.query('search') || '').trim();
+    const offset = (page - 1) * limit;
+
+    const where = search ? 'WHERE email LIKE ? OR name LIKE ?' : '';
+    const bindings = search ? [`%${search}%`, `%${search}%`] : [];
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT id, email, name, picture, role, is_verified, status, last_login_at, created_at
+       FROM users ${where}
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`
+    )
+      .bind(...bindings, limit, offset)
+      .all();
+
+    const totalRow = await c.env.DB.prepare(`SELECT COUNT(*) as count FROM users ${where}`)
+      .bind(...bindings)
+      .first();
+
+    return c.json({ success: true, users: results, total: totalRow?.count || 0, page, limit });
+  } catch (error) {
+    console.error('Admin users list error:', error);
+    return c.json({ success: false, message: 'Failed to load users.' }, 500);
+  }
+});
+
+app.patch('/admin/users/:id/role', requireAdmin, async (c) => {
+  try {
+    const targetId = c.req.param('id');
+    const { role } = await c.req.json();
+
+    if (!['user', 'admin'].includes(role)) {
+      return c.json({ success: false, message: "Role must be 'user' or 'admin'." }, 400);
+    }
+
+    await c.env.DB.prepare('UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(role, targetId)
+      .run();
+
+    return c.json({ success: true, message: 'Role updated.' });
+  } catch (error) {
+    console.error('Admin role update error:', error);
+    return c.json({ success: false, message: 'Failed to update role.' }, 500);
+  }
+});
+
+app.patch('/admin/users/:id/status', requireAdmin, async (c) => {
+  try {
+    const targetId = c.req.param('id');
+    const adminUserId = c.get('adminUserId');
+    const { status } = await c.req.json();
+
+    if (!['active', 'blocked', 'deleted'].includes(status)) {
+      return c.json({ success: false, message: 'Invalid status.' }, 400);
+    }
+    if (String(targetId) === String(adminUserId)) {
+      return c.json({ success: false, message: 'You cannot change your own status.' }, 400);
+    }
+
+    await c.env.DB.prepare('UPDATE users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .bind(status, targetId)
+      .run();
+
+    return c.json({ success: true, message: 'Status updated.' });
+  } catch (error) {
+    console.error('Admin status update error:', error);
+    return c.json({ success: false, message: 'Failed to update status.' }, 500);
+  }
 });
 
 export default app;
