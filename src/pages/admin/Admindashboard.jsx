@@ -12,6 +12,7 @@ import {
     Package,
 } from "lucide-react";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
+import AdminProducts from "./AdminProducts";
 const API_BASE_URL = "https://aurelia-admin-worker.adeebibrahim01.workers.dev";
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -337,7 +338,7 @@ export default function AdminDashboard() {
     const navigate = useNavigate();
     const { toasts, push } = useToasts();
 
-    const [activeTab, setActiveTab] = useState("users"); // "users" | "orders"
+    const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "products"
 
     const [stats, setStats] = useState(null);
 
@@ -573,6 +574,15 @@ export default function AdminDashboard() {
         );
     };
 
+    const pageTitle =
+        activeTab === "users" ? "The Member Registry" : activeTab === "orders" ? "The Order Ledger" : "The Product Catalog";
+    const pageSubtitle =
+        activeTab === "users"
+            ? "Every account that has ever signed in to AURELIA — verified through Google, or the long way, with a password and a code sent to their inbox."
+            : activeTab === "orders"
+                ? "Every order placed and paid for on AURELIA. Open one to see exactly what the customer bought."
+                : "Every product listed on AURELIA. Add, edit, or retire pieces from the catalog.";
+
     return (
         <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
             <ToastStack toasts={toasts} />
@@ -609,14 +619,8 @@ export default function AdminDashboard() {
             <div className="mx-auto max-w-6xl px-6 py-10 sm:px-10">
                 {/* Page intro */}
                 <div className="mb-8">
-                    <h1 className="font-serif text-4xl tracking-tight text-[#432817]">
-                        {activeTab === "users" ? "The Member Registry" : "The Order Ledger"}
-                    </h1>
-                    <p className="mt-2 max-w-md text-xs leading-6 text-[#7E7E86]">
-                        {activeTab === "users"
-                            ? "Every account that has ever signed in to AURELIA — verified through Google, or the long way, with a password and a code sent to their inbox."
-                            : "Every order placed and paid for on AURELIA. Open one to see exactly what the customer bought."}
-                    </p>
+                    <h1 className="font-serif text-4xl tracking-tight text-[#432817]">{pageTitle}</h1>
+                    <p className="mt-2 max-w-md text-xs leading-6 text-[#7E7E86]">{pageSubtitle}</p>
                 </div>
 
                 {/* Ledger stats strip */}
@@ -649,6 +653,16 @@ export default function AdminDashboard() {
                             }`}
                     >
                         Orders
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("products")}
+                        className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "products"
+                            ? "border-[#432817] text-[#432817]"
+                            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            }`}
+                    >
+                        Products
                     </button>
                 </div>
 
@@ -803,7 +817,7 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                     </>
-                ) : (
+                ) : activeTab === "orders" ? (
                     <>
                         {/* Order search */}
                         <div className="mb-6 flex max-w-md items-center gap-2">
@@ -933,6 +947,8 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                     </>
+                ) : (
+                    <AdminProducts />
                 )}
             </div>
         </main>
