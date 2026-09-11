@@ -1,0 +1,20 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "aurelia-admin-worker",
+    "main": "admin-worker.js",
+    "compatibility_date": "2026-09-09",
+    "compatibility_flags": [
+        "nodejs_compat"
+    ],
+    "vars": {
+        "ADMIN_JWT_SECRET": "super_secret_admin_jwt_key_aurelia_2026_diff"
+    },
+    // 🔹 D1 DATABASE BINDING — customer worker jaisi hi same DB
+    "d1_databases": [
+        {
+            "binding": "DB",
+            "database_name": "aurelia-db",
+            "database_id": "06206881-6a36-494b-aacc-72d1aa2fabb8"
+        }
+    ]
+}

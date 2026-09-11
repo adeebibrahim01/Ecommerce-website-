@@ -1,8 +1,8 @@
-// src/components/auth/AdminRoute.jsx
+// src/components/ProtectedAdminRoute.jsx
 import { Navigate } from "react-router-dom";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 
-export default function AdminRoute({ children }) {
+export default function ProtectedAdminRoute({ children }) {
     const { admin, isLoading } = useAdminAuth();
 
     if (isLoading) {

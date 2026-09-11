@@ -5,14 +5,9 @@ const API_BASE_URL = "https://ecommerce-website.adeebibrahim01.workers.dev";
 const MINIMUM_LOADER_DELAY = 1200;
 
 // Where each role lands right after a successful login/signup/verification.
-const ROLE_HOME_PATH = {
-  admin: "/admin",
-  user: "/",
-};
 
-function getRoleHomePath(role) {
-  return ROLE_HOME_PATH[role] || "/";
-}
+
+
 
 export function useAuth() {
   const [user, setUser] = useState(() => {
@@ -49,7 +44,7 @@ export function useAuth() {
   /** The ONE place that decides where a user lands after any successful auth event. */
   const redirectAfterAuth = useCallback(
     (userData) => {
-      navigate(getRoleHomePath(userData?.role), { replace: true });
+      navigate("/", { replace: true });
     },
     [navigate]
   );
@@ -208,12 +203,10 @@ export function useAuth() {
     navigate("/login", { replace: true });
   };
 
-  const isAdmin = user?.role === "admin";
 
   return {
     user,
     isLoading,
-    isAdmin,
     loginWithGoogle,
     login,
     signup,

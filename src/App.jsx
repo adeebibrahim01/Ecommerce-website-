@@ -5,19 +5,20 @@ import Footer from "./components/home/Footer";
 
 import LoginForm from "./components/auth/LoginForm";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
-import { useAuth } from "./hooks/useAuth"; // Auth hook import kiya agar user id chahiye ho
+import { useAuth } from "./hooks/useAuth";
 import OrderSuccess from "./pages/OrderSuccess";
 import Home from "./pages/Home";
 import Men from "./pages/Men";
 import Women from "./pages/Women";
 import CartPage from "./pages/cartpage";
-import ProductDetail from "./pages/ProductDetail"; // Aapka detail page component
+import ProductDetail from "./pages/ProductDetail";
 import LoginSuccess from "./pages/LoginSuccess";
 import Signup from "./pages/Signup";
-<Route path="/order-success" element={<OrderSuccess />} />
 import VerifyEmail from "./pages/VerifyEmail";
 import AdminRoute from "./components/auth/AdminRoute";
-import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminDashboard from "./pages/admin/Admindashboard";
+import AdminLogin from "./pages/AdminLogin";
+
 function MainLayout({ children }) {
   return (
     <>
@@ -84,21 +85,7 @@ function App() {
         }
       />
 
-      {/* ==================== AUTH ==================== */}
-
-      {/* Login - NO Navbar / Footer */}
-      <Route path="/login" element={<LoginForm />} />
-
-      {/* Google Auth Redirect Handler - NO Navbar / Footer */}
-      <Route path="/login-success" element={<LoginSuccess />} />
-
-
-      {/* ==================== 404 ==================== */}
-
-      <Route path="*" element={<Navigate to="/" replace />} />
-      <Route path="/signup" element={<Signup />} /> {/* 👈 Yahan Signup route add karein */}
-      <Route path="/verify-email" element={<VerifyEmail />} />
-      // ... baki routes ke sath yeh add karein:
+      {/* Product Detail */}
       <Route
         path="/product/:id"
         element={
@@ -109,7 +96,20 @@ function App() {
           </ProtectedRoute>
         }
       />
-      // routes ke andar:
+
+      {/* Order success */}
+      <Route path="/order-success" element={<OrderSuccess />} />
+
+      {/* ==================== AUTH (customer) ==================== */}
+
+      <Route path="/login" element={<LoginForm />} />
+      <Route path="/login-success" element={<LoginSuccess />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+
+      {/* ==================== ADMIN (bilkul alag, apna worker/token) ==================== */}
+
+      <Route path="/admin-login" element={<AdminLogin />} />
       <Route
         path="/admin"
         element={
@@ -118,6 +118,10 @@ function App() {
           </AdminRoute>
         }
       />
+
+      {/* ==================== 404 ==================== */}
+
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

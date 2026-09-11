@@ -721,37 +721,5 @@ app.get('/admin/orders', requireAdmin, async (c) => {
   }
 });
 
-app.get('/admin/orders/:id', requireAdmin, async (c) => {
-  try {
-    const orderId = c.req.param('id');
-
-    const order = await c.env.DB.prepare(
-      `SELECT o.id, o.order_number, o.user_id, o.subtotal, o.shipping, o.total,
-              o.status, o.payment_method, o.stripe_session_id, o.created_at,
-              u.name as user_name, u.email as user_email
-       FROM orders o
-       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
-       WHERE o.id = ?`
-    )
-      .bind(orderId)
-      .first();
-
-    if (!order) {
-      return c.json({ success: false, message: 'Order not found.' }, 404);
-    }
-
-    const { results: items } = await c.env.DB.prepare(
-      `SELECT id, product_id, name, price, image, quantity, line_total
-       FROM order_items WHERE order_id = ?`
-    )
-      .bind(orderId)
-      .all();
-
-    return c.json({ success: true, order, items: items || [] });
-  } catch (error) {
-    console.error('Admin order detail error:', error);
-    return c.json({ success: false, message: 'Failed to load order.' }, 500);
-  }
-});
 
 export default app;

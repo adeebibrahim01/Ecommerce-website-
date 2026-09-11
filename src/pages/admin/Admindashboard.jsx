@@ -11,14 +11,14 @@ import {
     ShieldAlert,
     Package,
 } from "lucide-react";
-import { useAuth } from "../../hooks/useAuth";
-
-const API_BASE_URL = "https://ecommerce-website.adeebibrahim01.workers.dev";
+import { useAdminAuth } from "../../hooks/useAdminAuth";
+const API_BASE_URL = "https://aurelia-admin-worker.adeebibrahim01.workers.dev";
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 350;
 
 async function adminFetch(path, options = {}) {
-    const token = localStorage.getItem("auth_token");
+
+    const token = localStorage.getItem("admin_auth_token");
     const response = await fetch(`${API_BASE_URL}${path}`, {
         ...options,
         headers: {
@@ -333,7 +333,7 @@ const ORDER_SORTABLE_COLUMNS = {
 };
 
 export default function AdminDashboard() {
-    const { user, logout } = useAuth();
+    const { admin, logout } = useAdminAuth();
     const navigate = useNavigate();
     const { toasts, push } = useToasts();
 
@@ -595,7 +595,7 @@ export default function AdminDashboard() {
                     </span>
                 </div>
                 <div className="flex items-center gap-4">
-                    <span className="hidden text-xs text-[#7E7E86] sm:inline">{user?.email}</span>
+                    <span className="hidden text-xs text-[#7E7E86] sm:inline">{admin?.email}</span>
                     <button
                         type="button"
                         onClick={logout}
