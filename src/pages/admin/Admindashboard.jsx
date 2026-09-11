@@ -9,6 +9,7 @@ import {
     ChevronUp,
     ChevronDown,
     ShieldAlert,
+    Package,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 
@@ -37,11 +38,12 @@ async function adminFetch(path, options = {}) {
 
 const AVATAR_TONES = ["#432817", "#7A4A28", "#977150", "#8C6C4F", "#5E3A22"];
 
-function monogramTone(name = "") {
-    const code = name.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+// Ab yeh karein:
+function monogramTone(name) {
+    const safeName = name || "";
+    const code = safeName.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
     return AVATAR_TONES[code % AVATAR_TONES.length];
 }
-
 function Monogram({ name, size = 32 }) {
     const initials = (name || "?")
         .trim()
@@ -60,7 +62,7 @@ function Monogram({ name, size = 32 }) {
 }
 
 function StatusDot({ status }) {
-    const colors = { active: "#6B7A5E", blocked: "#9B4635", deleted: "#7E7E86" };
+    const colors = { active: "#6B7A5E", blocked: "#9B4635", deleted: "#7E7E86", paid: "#6B7A5E", pending: "#977150", failed: "#9B4635" };
     return (
         <span
             className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
@@ -120,6 +122,11 @@ function LedgerStat({ label, value }) {
             <span className="mt-2 text-[9px] font-medium tracking-[0.2em] text-[#7E7E86] uppercase">{label}</span>
         </div>
     );
+}
+
+function money(n) {
+    const num = Number(n);
+    return Number.isFinite(num) ? `$${num.toFixed(2)}` : "—";
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -198,13 +205,106 @@ function ConfirmPopover({ request, onConfirm, onCancel }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Order detail popover — shows an order's line items
+// ─────────────────────────────────────────────────────────────
+
+function OrderDetailPopover({ order, items, loading, onClose }) {
+    if (!order) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4" onClick={onClose}>
+            <div
+                className="max-h-[85vh] w-full max-w-lg overflow-y-auto border border-[#D1B79E] bg-[#EDE6DA] px-6 py-6"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-start justify-between">
+                    <div>
+                        <p className="font-serif text-lg leading-snug text-[#432817]">{order.order_number}</p>
+                        <p className="mt-1 text-xs text-[#7E7E86]">
+                            {order.user_name || "Unknown"} · {order.user_email || `User #${order.user_id}`}
+                        </p>
+                    </div>
+                    <button type="button" onClick={onClose} className="text-[#7E7E86] hover:text-[#432817]">
+                        <X size={16} />
+                    </button>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2 text-[11px] text-[#432817]">
+                    <StatusDot status={order.status} />
+                    <span className="capitalize">{order.status}</span>
+                    <span className="text-[#D1B79E]">·</span>
+                    <span className="capitalize text-[#7E7E86]">{order.payment_method || "card"}</span>
+                    <span className="text-[#D1B79E]">·</span>
+                    <span className="text-[#7E7E86]">
+                        {order.created_at ? new Date(order.created_at + "Z").toLocaleString() : "—"}
+                    </span>
+                </div>
+
+                <div className="mt-5 border-t border-[#D1B79E]/60 pt-4">
+                    {loading ? (
+                        <div className="space-y-2">
+                            {Array.from({ length: 3 }).map((_, i) => (
+                                <div key={i} className="h-10 w-full animate-pulse rounded-sm bg-[#D1B79E]/30" />
+                            ))}
+                        </div>
+                    ) : items.length === 0 ? (
+                        <p className="text-xs text-[#7E7E86]">No items found for this order.</p>
+                    ) : (
+                        <div className="divide-y divide-[#D1B79E]/40">
+                            {items.map((item) => (
+                                <div key={item.id} className="flex items-center gap-3 py-3">
+                                    {item.image ? (
+                                        <img
+                                            src={item.image}
+                                            alt={item.name}
+                                            className="h-10 w-10 shrink-0 rounded-sm object-cover"
+                                        />
+                                    ) : (
+                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-[#D1B79E]/40">
+                                            <Package size={14} className="text-[#7E7E86]" />
+                                        </div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-xs font-medium text-[#432817]">{item.name}</p>
+                                        <p className="text-[10px] text-[#7E7E86]">
+                                            {item.quantity} × {money(item.price)}
+                                        </p>
+                                    </div>
+                                    <span className="shrink-0 text-xs font-medium text-[#432817]">
+                                        {money(item.line_total)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="mt-4 space-y-1.5 border-t border-[#D1B79E]/60 pt-4 text-xs">
+                    <div className="flex justify-between text-[#7E7E86]">
+                        <span>Subtotal</span>
+                        <span>{money(order.subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-[#7E7E86]">
+                        <span>Shipping</span>
+                        <span>{money(order.shipping)}</span>
+                    </div>
+                    <div className="flex justify-between font-medium text-[#432817]">
+                        <span>Total</span>
+                        <span>{money(order.total)}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Skeleton row (replaces plain "Loading users..." text)
 // ─────────────────────────────────────────────────────────────
 
-function SkeletonRow() {
+function SkeletonRow({ cols = 6 }) {
     return (
         <tr className="border-b border-[#D1B79E]/30">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: cols }).map((_, i) => (
                 <td key={i} className="px-4 py-4">
                     <div className="h-3 w-full max-w-[120px] animate-pulse rounded-sm bg-[#D1B79E]/40" />
                 </td>
@@ -225,12 +325,23 @@ const SORTABLE_COLUMNS = {
     created_at: { label: "Joined", key: "created_at" },
 };
 
+const ORDER_SORTABLE_COLUMNS = {
+    order_number: { label: "Order", key: "order_number" },
+    status: { label: "Status", key: "status" },
+    total: { label: "Total", key: "total" },
+    created_at: { label: "Date", key: "created_at" },
+};
+
 export default function AdminDashboard() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const { toasts, push } = useToasts();
 
+    const [activeTab, setActiveTab] = useState("users"); // "users" | "orders"
+
     const [stats, setStats] = useState(null);
+
+    // ---- Users tab state ----
     const [users, setUsers] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -242,9 +353,23 @@ export default function AdminDashboard() {
     const [sort, setSort] = useState({ key: "created_at", dir: "desc" });
     const [confirmRequest, setConfirmRequest] = useState(null);
 
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    // ---- Orders tab state ----
+    const [orders, setOrders] = useState([]);
+    const [ordersTotal, setOrdersTotal] = useState(0);
+    const [ordersPage, setOrdersPage] = useState(1);
+    const [ordersSearchInput, setOrdersSearchInput] = useState("");
+    const [ordersSearch, setOrdersSearch] = useState("");
+    const [ordersLoading, setOrdersLoading] = useState(true);
+    const [ordersError, setOrdersError] = useState("");
+    const [ordersSort, setOrdersSort] = useState({ key: "created_at", dir: "desc" });
+    const [selectedOrder, setSelectedOrder] = useState(null);
+    const [selectedOrderItems, setSelectedOrderItems] = useState([]);
+    const [orderDetailLoading, setOrderDetailLoading] = useState(false);
 
-    // Debounce search input -> search
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const ordersTotalPages = Math.max(1, Math.ceil(ordersTotal / PAGE_SIZE));
+
+    // Debounce user search input -> search
     useEffect(() => {
         const t = setTimeout(() => {
             setSearch(searchInput.trim());
@@ -253,15 +378,27 @@ export default function AdminDashboard() {
         return () => clearTimeout(t);
     }, [searchInput]);
 
-    const loadData = useCallback(async () => {
+    // Debounce order search input -> search
+    useEffect(() => {
+        const t = setTimeout(() => {
+            setOrdersSearch(ordersSearchInput.trim());
+            setOrdersPage(1);
+        }, SEARCH_DEBOUNCE_MS);
+        return () => clearTimeout(t);
+    }, [ordersSearchInput]);
+
+    // Stats load once, regardless of tab
+    useEffect(() => {
+        adminFetch("/admin/stats")
+            .then((res) => setStats(res.stats))
+            .catch(() => { });
+    }, []);
+
+    const loadUsers = useCallback(async () => {
         setLoading(true);
         setErrorMessage("");
         try {
-            const [statsRes, usersRes] = await Promise.all([
-                adminFetch("/admin/stats"),
-                adminFetch(`/admin/users?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(search)}`),
-            ]);
-            setStats(statsRes.stats);
+            const usersRes = await adminFetch(`/admin/users?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(search)}`);
             setUsers(usersRes.users);
             setTotal(usersRes.total);
         } catch (err) {
@@ -272,8 +409,28 @@ export default function AdminDashboard() {
     }, [page, search]);
 
     useEffect(() => {
-        loadData();
-    }, [loadData]);
+        if (activeTab === "users") loadUsers();
+    }, [activeTab, loadUsers]);
+
+    const loadOrders = useCallback(async () => {
+        setOrdersLoading(true);
+        setOrdersError("");
+        try {
+            const ordersRes = await adminFetch(
+                `/admin/orders?page=${ordersPage}&limit=${PAGE_SIZE}&search=${encodeURIComponent(ordersSearch)}`
+            );
+            setOrders(ordersRes.orders);
+            setOrdersTotal(ordersRes.total);
+        } catch (err) {
+            setOrdersError(err.message || "Could not reach the orders ledger. Try again in a moment.");
+        } finally {
+            setOrdersLoading(false);
+        }
+    }, [ordersPage, ordersSearch]);
+
+    useEffect(() => {
+        if (activeTab === "orders") loadOrders();
+    }, [activeTab, loadOrders]);
 
     const sortedUsers = useMemo(() => {
         const copy = [...users];
@@ -288,8 +445,43 @@ export default function AdminDashboard() {
         return copy;
     }, [users, sort]);
 
+    const sortedOrders = useMemo(() => {
+        const copy = [...orders];
+        const { key, dir } = ordersSort;
+        copy.sort((a, b) => {
+            const av = (a[key] ?? "").toString().toLowerCase();
+            const bv = (b[key] ?? "").toString().toLowerCase();
+            if (av < bv) return dir === "asc" ? -1 : 1;
+            if (av > bv) return dir === "asc" ? 1 : -1;
+            return 0;
+        });
+        return copy;
+    }, [orders, ordersSort]);
+
     const toggleSort = (key) => {
         setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+    };
+
+    const toggleOrdersSort = (key) => {
+        setOrdersSort((prev) =>
+            prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }
+        );
+    };
+
+    const openOrderDetail = async (order) => {
+        setSelectedOrder(order);
+        setSelectedOrderItems([]);
+        setOrderDetailLoading(true);
+        try {
+            const res = await adminFetch(`/admin/orders/${order.id}`);
+            setSelectedOrder(res.order);
+            setSelectedOrderItems(res.items || []);
+        } catch (err) {
+            push(err.message || "Could not load order details.", "bad");
+            setSelectedOrder(null);
+        } finally {
+            setOrderDetailLoading(false);
+        }
     };
 
     const requestRoleChange = (targetUser) => {
@@ -365,10 +557,32 @@ export default function AdminDashboard() {
         );
     };
 
+    const OrderSortHeader = ({ colKey }) => {
+        const col = ORDER_SORTABLE_COLUMNS[colKey];
+        const active = ordersSort.key === colKey;
+        return (
+            <button
+                type="button"
+                onClick={() => toggleOrdersSort(colKey)}
+                className={`flex items-center gap-1 uppercase tracking-[0.15em] transition-colors ${active ? "text-[#432817]" : "text-[#7E7E86] hover:text-[#432817]"
+                    }`}
+            >
+                {col.label}
+                {active && (ordersSort.dir === "asc" ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+            </button>
+        );
+    };
+
     return (
         <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
             <ToastStack toasts={toasts} />
             <ConfirmPopover request={confirmRequest} onConfirm={handleConfirm} onCancel={() => setConfirmRequest(null)} />
+            <OrderDetailPopover
+                order={selectedOrder}
+                items={selectedOrderItems}
+                loading={orderDetailLoading}
+                onClose={() => setSelectedOrder(null)}
+            />
 
             {/* Header */}
             <header className="flex items-center justify-between border-b border-[#D1B79E]/60 px-6 py-5 sm:px-10">
@@ -395,15 +609,18 @@ export default function AdminDashboard() {
             <div className="mx-auto max-w-6xl px-6 py-10 sm:px-10">
                 {/* Page intro */}
                 <div className="mb-8">
-                    <h1 className="font-serif text-4xl tracking-tight text-[#432817]">The Member Registry</h1>
+                    <h1 className="font-serif text-4xl tracking-tight text-[#432817]">
+                        {activeTab === "users" ? "The Member Registry" : "The Order Ledger"}
+                    </h1>
                     <p className="mt-2 max-w-md text-xs leading-6 text-[#7E7E86]">
-                        Every account that has ever signed in to AURELIA — verified through Google, or the long way, with a
-                        password and a code sent to their inbox.
+                        {activeTab === "users"
+                            ? "Every account that has ever signed in to AURELIA — verified through Google, or the long way, with a password and a code sent to their inbox."
+                            : "Every order placed and paid for on AURELIA. Open one to see exactly what the customer bought."}
                     </p>
                 </div>
 
                 {/* Ledger stats strip */}
-                <div className="mb-10 flex flex-wrap divide-x divide-[#D1B79E]/60 border-y border-[#D1B79E]/60">
+                <div className="mb-8 flex flex-wrap divide-x divide-[#D1B79E]/60 border-y border-[#D1B79E]/60">
                     <LedgerStat label="Total members" value={stats?.total_users} />
                     <LedgerStat label="Admins" value={stats?.total_admins} />
                     <LedgerStat label="Active" value={stats?.active_users} />
@@ -411,154 +628,312 @@ export default function AdminDashboard() {
                     <LedgerStat label="Verified" value={stats?.verified_users} />
                 </div>
 
-                {/* Search */}
-                <div className="mb-6 flex max-w-md items-center gap-2">
-                    <div className="relative flex-1">
-                        <Search size={14} className="absolute left-0 top-1/2 -translate-y-1/2 text-[#7E7E86]" />
-                        <input
-                            type="text"
-                            value={searchInput}
-                            onChange={(e) => setSearchInput(e.target.value)}
-                            placeholder="Search by name or email"
-                            className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 pl-6 pr-6 text-xs outline-none placeholder:text-[#a89b8c] focus:border-[#432817]"
-                        />
-                        {searchInput && (
-                            <button
-                                type="button"
-                                onClick={() => setSearchInput("")}
-                                className="absolute right-0 top-1/2 -translate-y-1/2 text-[#7E7E86] hover:text-[#432817]"
-                            >
-                                <X size={13} />
-                            </button>
-                        )}
-                    </div>
+                {/* Tabs */}
+                <div className="mb-6 flex gap-6 border-b border-[#D1B79E]/60">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("users")}
+                        className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "users"
+                            ? "border-[#432817] text-[#432817]"
+                            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            }`}
+                    >
+                        Users
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("orders")}
+                        className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "orders"
+                            ? "border-[#432817] text-[#432817]"
+                            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            }`}
+                    >
+                        Orders
+                    </button>
                 </div>
 
-                {errorMessage && (
-                    <div className="mb-5 border-l-2 border-[#9B4635] bg-[#9B4635]/5 px-4 py-3 text-xs text-[#7a3226]">
-                        {errorMessage}
-                    </div>
-                )}
-
-                {/* Table */}
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] text-left text-xs">
-                        <thead>
-                            <tr className="border-b border-[#D1B79E]/60 text-[9px]">
-                                <th className="px-4 py-3">
-                                    <SortHeader colKey="name" />
-                                </th>
-                                <th className="px-4 py-3 text-[#7E7E86] uppercase tracking-[0.15em]">Email</th>
-                                <th className="px-4 py-3">
-                                    <SortHeader colKey="role" />
-                                </th>
-                                <th className="px-4 py-3">
-                                    <SortHeader colKey="status" />
-                                </th>
-                                <th className="px-4 py-3 text-[#7E7E86] uppercase tracking-[0.15em]">Verified</th>
-                                <th className="px-4 py-3">
-                                    <SortHeader colKey="created_at" />
-                                </th>
-                                <th className="px-4 py-3 text-right text-[#7E7E86] uppercase tracking-[0.15em]">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
-                            ) : sortedUsers.length === 0 ? (
-                                <tr>
-                                    <td colSpan={7} className="px-4 py-14 text-center">
-                                        <p className="font-serif text-lg text-[#432817]">No one matches that search.</p>
-                                        <p className="mt-1 text-[11px] text-[#7E7E86]">
-                                            Try a different name or email, or{" "}
-                                            <button
-                                                type="button"
-                                                onClick={() => setSearchInput("")}
-                                                className="underline decoration-[#977150] underline-offset-2 hover:text-[#432817]"
-                                            >
-                                                clear the search
-                                            </button>
-                                            .
-                                        </p>
-                                    </td>
-                                </tr>
-                            ) : (
-                                sortedUsers.map((u) => (
-                                    <tr
-                                        key={u.id}
-                                        className="border-b border-[#D1B79E]/30 transition-colors last:border-0 hover:bg-[#432817]/[0.03]"
+                {activeTab === "users" ? (
+                    <>
+                        {/* Search */}
+                        <div className="mb-6 flex max-w-md items-center gap-2">
+                            <div className="relative flex-1">
+                                <Search size={14} className="absolute left-0 top-1/2 -translate-y-1/2 text-[#7E7E86]" />
+                                <input
+                                    type="text"
+                                    value={searchInput}
+                                    onChange={(e) => setSearchInput(e.target.value)}
+                                    placeholder="Search by name or email"
+                                    className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 pl-6 pr-6 text-xs outline-none placeholder:text-[#a89b8c] focus:border-[#432817]"
+                                />
+                                {searchInput && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSearchInput("")}
+                                        className="absolute right-0 top-1/2 -translate-y-1/2 text-[#7E7E86] hover:text-[#432817]"
                                     >
-                                        <td className="px-4 py-3.5">
-                                            <div className="flex items-center gap-2.5">
-                                                <Monogram name={u.name} />
-                                                <span className="font-medium">{u.name}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3.5 text-[#7E7E86]">{u.email}</td>
-                                        <td className="px-4 py-3.5">
-                                            <RoleMark role={u.role} />
-                                        </td>
-                                        <td className="px-4 py-3.5">
-                                            <span className="inline-flex items-center text-[11px] capitalize text-[#432817]">
-                                                <StatusDot status={u.status} />
-                                                {u.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3.5 text-[#7E7E86]">{u.is_verified ? "Yes" : "No"}</td>
-                                        <td className="px-4 py-3.5 text-[#7E7E86]">
-                                            {u.created_at ? new Date(u.created_at + "Z").toLocaleDateString() : "—"}
-                                        </td>
-                                        <td className="px-4 py-3.5">
-                                            <div className="flex justify-end gap-3 text-[10px] font-medium tracking-[0.08em] uppercase">
-                                                <button
-                                                    type="button"
-                                                    disabled={busyUserId === u.id}
-                                                    onClick={() => requestRoleChange(u)}
-                                                    className="text-[#432817] underline decoration-[#D1B79E] underline-offset-3 hover:decoration-[#432817] disabled:opacity-40"
-                                                >
-                                                    {u.role === "admin" ? "Demote" : "Promote"}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={busyUserId === u.id}
-                                                    onClick={() => requestStatusChange(u)}
-                                                    className="text-[#9B4635] underline decoration-[#D1B79E] underline-offset-3 hover:decoration-[#9B4635] disabled:opacity-40"
-                                                >
-                                                    {u.status === "blocked" ? "Unblock" : "Block"}
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
 
-                {/* Pagination */}
-                <div className="mt-6 flex items-center justify-between text-[11px] text-[#7E7E86]">
-                    <span>
-                        Page {page} of {totalPages} · {total} member{total === 1 ? "" : "s"}
-                    </span>
-                    <div className="flex gap-1">
-                        <button
-                            type="button"
-                            disabled={page <= 1}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            className="flex items-center gap-1 px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30"
-                        >
-                            <ChevronLeft size={13} /> Prev
-                        </button>
-                        <button
-                            type="button"
-                            disabled={page >= totalPages}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            className="flex items-center gap-1 px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30"
-                        >
-                            Next <ChevronRight size={13} />
-                        </button>
-                    </div>
-                </div>
+                        {errorMessage && (
+                            <div className="mb-5 border-l-2 border-[#9B4635] bg-[#9B4635]/5 px-4 py-3 text-xs text-[#7a3226]">
+                                {errorMessage}
+                            </div>
+                        )}
+
+                        {/* Users table */}
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[760px] text-left text-xs">
+                                <thead>
+                                    <tr className="border-b border-[#D1B79E]/60 text-[9px]">
+                                        <th className="px-4 py-3">
+                                            <SortHeader colKey="name" />
+                                        </th>
+                                        <th className="px-4 py-3 text-[#7E7E86] uppercase tracking-[0.15em]">Email</th>
+                                        <th className="px-4 py-3">
+                                            <SortHeader colKey="role" />
+                                        </th>
+                                        <th className="px-4 py-3">
+                                            <SortHeader colKey="status" />
+                                        </th>
+                                        <th className="px-4 py-3 text-[#7E7E86] uppercase tracking-[0.15em]">Verified</th>
+                                        <th className="px-4 py-3">
+                                            <SortHeader colKey="created_at" />
+                                        </th>
+                                        <th className="px-4 py-3 text-right text-[#7E7E86] uppercase tracking-[0.15em]">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {loading ? (
+                                        Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
+                                    ) : sortedUsers.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-14 text-center">
+                                                <p className="font-serif text-lg text-[#432817]">No one matches that search.</p>
+                                                <p className="mt-1 text-[11px] text-[#7E7E86]">
+                                                    Try a different name or email, or{" "}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSearchInput("")}
+                                                        className="underline decoration-[#977150] underline-offset-2 hover:text-[#432817]"
+                                                    >
+                                                        clear the search
+                                                    </button>
+                                                    .
+                                                </p>
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        sortedUsers.map((u) => (
+                                            <tr
+                                                key={u.id}
+                                                className="border-b border-[#D1B79E]/30 transition-colors last:border-0 hover:bg-[#432817]/[0.03]"
+                                            >
+                                                <td className="px-4 py-3.5">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <Monogram name={u.name} />
+                                                        <span className="font-medium">{u.name}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3.5 text-[#7E7E86]">{u.email}</td>
+                                                <td className="px-4 py-3.5">
+                                                    <RoleMark role={u.role} />
+                                                </td>
+                                                <td className="px-4 py-3.5">
+                                                    <span className="inline-flex items-center text-[11px] capitalize text-[#432817]">
+                                                        <StatusDot status={u.status} />
+                                                        {u.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3.5 text-[#7E7E86]">{u.is_verified ? "Yes" : "No"}</td>
+                                                <td className="px-4 py-3.5 text-[#7E7E86]">
+                                                    {u.created_at ? new Date(u.created_at + "Z").toLocaleDateString() : "—"}
+                                                </td>
+                                                <td className="px-4 py-3.5">
+                                                    <div className="flex justify-end gap-3 text-[10px] font-medium tracking-[0.08em] uppercase">
+                                                        <button
+                                                            type="button"
+                                                            disabled={busyUserId === u.id}
+                                                            onClick={() => requestRoleChange(u)}
+                                                            className="text-[#432817] underline decoration-[#D1B79E] underline-offset-3 hover:decoration-[#432817] disabled:opacity-40"
+                                                        >
+                                                            {u.role === "admin" ? "Demote" : "Promote"}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={busyUserId === u.id}
+                                                            onClick={() => requestStatusChange(u)}
+                                                            className="text-[#9B4635] underline decoration-[#D1B79E] underline-offset-3 hover:decoration-[#9B4635] disabled:opacity-40"
+                                                        >
+                                                            {u.status === "blocked" ? "Unblock" : "Block"}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Pagination */}
+                        <div className="mt-6 flex items-center justify-between text-[11px] text-[#7E7E86]">
+                            <span>
+                                Page {page} of {totalPages} · {total} member{total === 1 ? "" : "s"}
+                            </span>
+                            <div className="flex gap-1">
+                                <button
+                                    type="button"
+                                    disabled={page <= 1}
+                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                    className="flex items-center gap-1 px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30"
+                                >
+                                    <ChevronLeft size={13} /> Prev
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={page >= totalPages}
+                                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                    className="flex items-center gap-1 px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30"
+                                >
+                                    Next <ChevronRight size={13} />
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        {/* Order search */}
+                        <div className="mb-6 flex max-w-md items-center gap-2">
+                            <div className="relative flex-1">
+                                <Search size={14} className="absolute left-0 top-1/2 -translate-y-1/2 text-[#7E7E86]" />
+                                <input
+                                    type="text"
+                                    value={ordersSearchInput}
+                                    onChange={(e) => setOrdersSearchInput(e.target.value)}
+                                    placeholder="Search by order number, name or email"
+                                    className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 pl-6 pr-6 text-xs outline-none placeholder:text-[#a89b8c] focus:border-[#432817]"
+                                />
+                                {ordersSearchInput && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setOrdersSearchInput("")}
+                                        className="absolute right-0 top-1/2 -translate-y-1/2 text-[#7E7E86] hover:text-[#432817]"
+                                    >
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {ordersError && (
+                            <div className="mb-5 border-l-2 border-[#9B4635] bg-[#9B4635]/5 px-4 py-3 text-xs text-[#7a3226]">
+                                {ordersError}
+                            </div>
+                        )}
+
+                        {/* Orders table */}
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[720px] text-left text-xs">
+                                <thead>
+                                    <tr className="border-b border-[#D1B79E]/60 text-[9px]">
+                                        <th className="px-4 py-3">
+                                            <OrderSortHeader colKey="order_number" />
+                                        </th>
+                                        <th className="px-4 py-3 text-[#7E7E86] uppercase tracking-[0.15em]">Customer</th>
+                                        <th className="px-4 py-3">
+                                            <OrderSortHeader colKey="status" />
+                                        </th>
+                                        <th className="px-4 py-3">
+                                            <OrderSortHeader colKey="total" />
+                                        </th>
+                                        <th className="px-4 py-3">
+                                            <OrderSortHeader colKey="created_at" />
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {ordersLoading ? (
+                                        Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} cols={5} />)
+                                    ) : sortedOrders.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={5} className="px-4 py-14 text-center">
+                                                <p className="font-serif text-lg text-[#432817]">No orders match that search.</p>
+                                                <p className="mt-1 text-[11px] text-[#7E7E86]">
+                                                    Try a different order number, name or email, or{" "}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setOrdersSearchInput("")}
+                                                        className="underline decoration-[#977150] underline-offset-2 hover:text-[#432817]"
+                                                    >
+                                                        clear the search
+                                                    </button>
+                                                    .
+                                                </p>
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        sortedOrders.map((o) => (
+                                            <tr
+                                                key={o.id}
+                                                onClick={() => openOrderDetail(o)}
+                                                className="cursor-pointer border-b border-[#D1B79E]/30 transition-colors last:border-0 hover:bg-[#432817]/[0.03]"
+                                            >
+                                                <td className="px-4 py-3.5 font-medium">{o.order_number}</td>
+                                                <td className="px-4 py-3.5">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <Monogram name={o.user_name || o.user_email} size={26} />
+                                                        <div className="min-w-0">
+                                                            <p className="truncate">{o.user_name || "Unknown"}</p>
+                                                            <p className="truncate text-[10px] text-[#7E7E86]">{o.user_email}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3.5">
+                                                    <span className="inline-flex items-center text-[11px] capitalize text-[#432817]">
+                                                        <StatusDot status={o.status} />
+                                                        {o.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3.5 font-medium">{money(o.total)}</td>
+                                                <td className="px-4 py-3.5 text-[#7E7E86]">
+                                                    {o.created_at ? new Date(o.created_at + "Z").toLocaleDateString() : "—"}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Pagination */}
+                        <div className="mt-6 flex items-center justify-between text-[11px] text-[#7E7E86]">
+                            <span>
+                                Page {ordersPage} of {ordersTotalPages} · {ordersTotal} order{ordersTotal === 1 ? "" : "s"}
+                            </span>
+                            <div className="flex gap-1">
+                                <button
+                                    type="button"
+                                    disabled={ordersPage <= 1}
+                                    onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
+                                    className="flex items-center gap-1 px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30"
+                                >
+                                    <ChevronLeft size={13} /> Prev
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={ordersPage >= ordersTotalPages}
+                                    onClick={() => setOrdersPage((p) => Math.min(ordersTotalPages, p + 1))}
+                                    className="flex items-center gap-1 px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30"
+                                >
+                                    Next <ChevronRight size={13} />
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         </main>
     );

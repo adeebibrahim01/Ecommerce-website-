@@ -674,5 +674,84 @@ app.patch('/admin/users/:id/status', requireAdmin, async (c) => {
     return c.json({ success: false, message: 'Failed to update status.' }, 500);
   }
 });
+// ==========================================
+// ADMIN ORDERS APIS
+// ==========================================
+
+app.get('/admin/orders', requireAdmin, async (c) => {
+  try {
+    const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+    const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
+    const search = (c.req.query('search') || '').trim();
+    const offset = (page - 1) * limit;
+
+    // order_items/orders ka user_id TEXT ke tor par store hota hai (String(userId)),
+    // jabke users.id integer hai — isliye CAST karke match karwaya hai.
+    const where = search
+      ? `WHERE o.order_number LIKE ? OR u.email LIKE ? OR u.name LIKE ?`
+      : '';
+    const bindings = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT o.id, o.order_number, o.user_id, o.subtotal, o.shipping, o.total,
+              o.status, o.payment_method, o.created_at,
+              u.name as user_name, u.email as user_email
+       FROM orders o
+       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       ${where}
+       ORDER BY o.created_at DESC
+       LIMIT ? OFFSET ?`
+    )
+      .bind(...bindings, limit, offset)
+      .all();
+
+    const totalRow = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count
+       FROM orders o
+       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       ${where}`
+    )
+      .bind(...bindings)
+      .first();
+
+    return c.json({ success: true, orders: results, total: totalRow?.count || 0, page, limit });
+  } catch (error) {
+    console.error('Admin orders list error:', error);
+    return c.json({ success: false, message: 'Failed to load orders.' }, 500);
+  }
+});
+
+app.get('/admin/orders/:id', requireAdmin, async (c) => {
+  try {
+    const orderId = c.req.param('id');
+
+    const order = await c.env.DB.prepare(
+      `SELECT o.id, o.order_number, o.user_id, o.subtotal, o.shipping, o.total,
+              o.status, o.payment_method, o.stripe_session_id, o.created_at,
+              u.name as user_name, u.email as user_email
+       FROM orders o
+       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       WHERE o.id = ?`
+    )
+      .bind(orderId)
+      .first();
+
+    if (!order) {
+      return c.json({ success: false, message: 'Order not found.' }, 404);
+    }
+
+    const { results: items } = await c.env.DB.prepare(
+      `SELECT id, product_id, name, price, image, quantity, line_total
+       FROM order_items WHERE order_id = ?`
+    )
+      .bind(orderId)
+      .all();
+
+    return c.json({ success: true, order, items: items || [] });
+  } catch (error) {
+    console.error('Admin order detail error:', error);
+    return c.json({ success: false, message: 'Failed to load order.' }, 500);
+  }
+});
 
 export default app;
