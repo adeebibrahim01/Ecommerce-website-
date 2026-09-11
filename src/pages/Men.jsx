@@ -6,21 +6,28 @@ import menProducts from "../data/men";
 import ProductCard from "../components/shop/ProductCard";
 import ProductFilters from "../components/shop/ProductFilters";
 import ProductSort from "../components/shop/ProductSort";
-import { useCart } from "../hooks/useCart"; // 1. Hook import karein
+import { useCart } from "../hooks/useCart";
+import { useAuth } from "../hooks/useAuth";
 
-export default function ProductGrid({ category, userId }) {
+export default function ProductGrid({ category, userId: userIdProp }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("featured");
 
-  // 2. Hook ko sirf EK dafa call karein aur saari zaroori cheezein nikal lein
+  // FIX: pehle is component ko sirf parent se `userId` prop milne ki
+  // ummeed thi. Agar jis page/route pe ye render hoti thi wahan prop
+  // pass hi nahi ki gayi thi (ya galat cheez pass ho rahi thi, jaise
+  // pura `user` object instead of `user.id`), to `userId` hamesha
+  // undefined rehta tha - is liye "Please log in first" dikhta tha
+  // chahe login ho chuka ho. Ab `useAuth()` se seedha DB-backed user
+  // nikalte hain (jaisa ProductCard.jsx pehle se karta hai) aur agar
+  // koi prop di gayi ho to usay sirf override ke tor pe istemal karte
+  // hain - is se ye component kisi bhi page pe kaam karega, prop pass
+  // ho ya na ho.
+  const { user } = useAuth();
+  const userId = userIdProp || user?.id;
+
   const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
 
-  // Add to cart handler
-  // FIX: pehle sirf `productId` liya jata tha aur addToCart(productId, 1)
-  // call hoti thi - is se name/price/image kabhi bheja hi nahi jata tha,
-  // aur useCart hook ke fallback defaults ("Product #id", price: 0) DB
-  // mein save ho jate thay. Ab pura `product` object lete hain aur
-  // addToCart ko teesra argument (name/price/image) bhi bhejte hain.
   const handleAddToCart = async (product) => {
     if (!userId) {
       alert("Please log in to add items to cart.");
@@ -42,7 +49,6 @@ export default function ProductGrid({ category, userId }) {
   const filteredAndSortedProducts = useMemo(() => {
     let result = [...menProducts];
 
-    // Main page category
     if (category) {
       result = result.filter(
         (product) =>
@@ -50,7 +56,6 @@ export default function ProductGrid({ category, userId }) {
       );
     }
 
-    // Filter category from men.js
     if (selectedCategory !== "All") {
       result = result.filter(
         (product) =>
@@ -59,7 +64,6 @@ export default function ProductGrid({ category, userId }) {
       );
     }
 
-    // Sorting
     switch (sortBy) {
       case "newest":
         result.sort((a, b) => {
@@ -95,7 +99,6 @@ export default function ProductGrid({ category, userId }) {
     return result;
   }, [category, selectedCategory, sortBy]);
 
-  // Yeh check karega ke item database cart mein hai ya nahi
   const isProductInCart = (productId) => {
     if (!cartItems) return false;
     return cartItems.some(
@@ -105,10 +108,8 @@ export default function ProductGrid({ category, userId }) {
 
   return (
     <section className="relative overflow-hidden bg-[#EDE6DA]">
-      {/* Soft background atmosphere */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/25 to-transparent" />
 
-      {/* FILTER / CONTROL AREA */}
       <div className="relative border-y border-[#D8CFC2]/80 bg-[#EDE6DA]/95 backdrop-blur-xl">
         <div className="mx-auto max-w-[1600px] px-4 sm:px-8 lg:px-12 xl:px-16">
           <div className="flex min-h-[76px] items-center justify-between gap-6">
@@ -150,7 +151,6 @@ export default function ProductGrid({ category, userId }) {
         </div>
       </div>
 
-      {/* SORT / RESULT BAR */}
       <div className="relative">
         <div className="mx-auto max-w-[1600px] px-4 sm:px-8 lg:px-12 xl:px-16">
           <div className="flex min-h-[68px] items-center justify-between gap-4 border-b border-[#D8CFC2]/60">
@@ -189,7 +189,6 @@ export default function ProductGrid({ category, userId }) {
         </div>
       </div>
 
-      {/* PRODUCTS */}
       <div className="relative mx-auto max-w-[1600px] px-4 py-10 sm:px-8 sm:py-12 lg:px-12 lg:py-16 xl:px-16">
         {filteredAndSortedProducts.length > 0 ? (
           <>
