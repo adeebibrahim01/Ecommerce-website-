@@ -83,6 +83,22 @@ const EMPTY_PRODUCT = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Small shared hook: close on Escape, but never while something
+// critical (save/upload) is in flight — avoids losing unsaved work.
+// ─────────────────────────────────────────────────────────────
+
+function useEscapeToClose(isActive, isBusy, onEscape) {
+    useEffect(() => {
+        if (!isActive) return;
+        const handleKeyDown = (e) => {
+            if (e.key === "Escape" && !isBusy) onEscape();
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isActive, isBusy, onEscape]);
+}
+
+// ─────────────────────────────────────────────────────────────
 // Toasts
 // ─────────────────────────────────────────────────────────────
 
@@ -149,10 +165,18 @@ function TaxonomyRowSkeleton() {
 // ─────────────────────────────────────────────────────────────
 
 function ConfirmPopover({ product, onConfirm, onCancel }) {
+    useEscapeToClose(!!product, false, onCancel);
+
     if (!product) return null;
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4" onClick={onCancel}>
-            <div className="w-full max-w-sm border border-[#D1B79E] bg-[#EDE6DA] px-6 py-6" onClick={(e) => e.stopPropagation()}>
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4 animate-[fadeIn_0.15s_ease-out]"
+            onClick={onCancel}
+        >
+            <div
+                className="w-full max-w-sm border border-[#D1B79E] bg-[#EDE6DA] px-6 py-6 animate-[fadeIn_0.2s_ease-out]"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <p className="font-serif text-lg leading-snug text-[#432817]">Delete this product?</p>
                 <p className="mt-2 text-xs leading-5 text-[#7E7E86]">
                     {product.name} will be permanently removed from the catalog. This can't be undone.
@@ -184,11 +208,30 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
     const [newName, setNewName] = useState("");
     const [newImage, setNewImage] = useState("");
     const [uploadingNew, setUploadingNew] = useState(false);
+    const [isDraggingLogo, setIsDraggingLogo] = useState(false);
     const [adding, setAdding] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [editingName, setEditingName] = useState("");
     const [logoUploadingId, setLogoUploadingId] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
+
+    const busy = adding || uploadingNew || logoUploadingId !== null;
+
+    // Escape dismisses the inline delete-confirm banner first (if open),
+    // otherwise closes the whole popover — never while something is saving/uploading.
+    const handleEscape = useCallback(() => {
+        if (deleteTarget) {
+            setDeleteTarget(null);
+            return;
+        }
+        onClose();
+    }, [deleteTarget, onClose]);
+    useEscapeToClose(true, busy, handleEscape);
+
+    const handleOverlayClick = () => {
+        if (busy) return;
+        onClose();
+    };
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -204,8 +247,9 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
 
     useEffect(() => { load(); }, [load]);
 
-    const handleNewImageChange = async (e) => {
-        const file = e.target.files?.[0];
+    // Shared upload logic for the "new brand/category" logo — used by
+    // both the file picker (onChange) and drag & drop (onDrop).
+    const processNewLogoFile = async (file) => {
         if (!file) return;
         setUploadingNew(true);
         try {
@@ -216,6 +260,21 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
         } finally {
             setUploadingNew(false);
         }
+    };
+
+    const handleNewImageChange = async (e) => {
+        const file = e.target.files?.[0];
+        // Reset the native input value so selecting the exact same file
+        // again later (e.g. after removing it) still fires onChange.
+        e.target.value = "";
+        await processNewLogoFile(file);
+    };
+
+    const handleNewLogoDrop = async (e) => {
+        e.preventDefault();
+        setIsDraggingLogo(false);
+        if (uploadingNew) return;
+        await processNewLogoFile(e.dataTransfer.files?.[0]);
     };
 
     const handleAdd = async (e) => {
@@ -259,6 +318,7 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
 
     const handleLogoChange = async (item, e) => {
         const file = e.target.files?.[0];
+        e.target.value = ""; // BUG FIX: allow re-selecting the same file again later
         if (!file) return;
         setLogoUploadingId(item.id);
         try {
@@ -291,11 +351,23 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4" onClick={onClose}>
-            <div className="max-h-[80vh] w-full max-w-md overflow-y-auto border border-[#D1B79E] bg-[#EDE6DA] px-6 py-6" onClick={(e) => e.stopPropagation()}>
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4 animate-[fadeIn_0.15s_ease-out]"
+            onClick={handleOverlayClick}
+        >
+            <div
+                className="max-h-[80vh] w-full max-w-md overflow-y-auto border border-[#D1B79E] bg-[#EDE6DA] px-6 py-6 animate-[fadeIn_0.2s_ease-out]"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <div className="flex items-center justify-between">
                     <p className="font-serif text-lg text-[#432817]">Manage {label}s</p>
-                    <button type="button" onClick={onClose} className="text-[#7E7E86] hover:text-[#432817]">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        title="Close"
+                        aria-label="Close"
+                        className="text-[#7E7E86] transition-colors hover:text-[#432817]"
+                    >
                         <X size={16} />
                     </button>
                 </div>
@@ -312,7 +384,7 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
                         <button
                             type="submit"
                             disabled={adding || uploadingNew || !newName.trim()}
-                            className="flex items-center gap-1 bg-[#432817] px-3 py-2 text-[9px] font-medium tracking-[0.15em] text-[#EDE6DA] uppercase hover:bg-[#5a3720] disabled:opacity-50"
+                            className="flex items-center gap-1 bg-[#432817] px-3 py-2 text-[9px] font-medium tracking-[0.15em] text-[#EDE6DA] uppercase transition-colors hover:bg-[#5a3720] disabled:opacity-50"
                         >
                             <Plus size={12} /> Add
                         </button>
@@ -320,9 +392,17 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
 
                     {!isCategory && (
                         <div className="flex items-center gap-3">
-                            <label className="flex cursor-pointer items-center gap-2 border border-dashed border-[#D1B79E] px-3 py-2 text-[10px] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]">
+                            <label
+                                className={`flex cursor-pointer items-center gap-2 border border-dashed px-3 py-2 text-[10px] transition-colors ${isDraggingLogo
+                                        ? "border-[#432817] bg-[#432817]/5 text-[#432817]"
+                                        : "border-[#D1B79E] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]"
+                                    }`}
+                                onDragOver={(e) => { e.preventDefault(); if (!uploadingNew) setIsDraggingLogo(true); }}
+                                onDragLeave={() => setIsDraggingLogo(false)}
+                                onDrop={handleNewLogoDrop}
+                            >
                                 <UploadCloud size={12} />
-                                {uploadingNew ? "Uploading…" : "Upload logo (optional)"}
+                                {uploadingNew ? "Uploading…" : "Upload logo (optional) — or drag & drop"}
                                 <input type="file" accept="image/*" className="hidden" onChange={handleNewImageChange} disabled={uploadingNew} />
                             </label>
                             {newImage && (
@@ -347,7 +427,7 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
                             <div key={item.id} className="flex items-center justify-between gap-2 py-2.5">
                                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
                                     {!isCategory && (
-                                        <label className="relative shrink-0 cursor-pointer">
+                                        <label className="relative shrink-0 cursor-pointer" title="Change logo">
                                             {item.logo ? (
                                                 <img src={item.logo} alt="" className="h-8 w-8 rounded-sm object-cover" />
                                             ) : (
@@ -393,11 +473,23 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
                                             Save
                                         </button>
                                     ) : (
-                                        <button type="button" onClick={() => startEdit(item)} className="text-[#7E7E86] hover:text-[#432817]">
+                                        <button
+                                            type="button"
+                                            onClick={() => startEdit(item)}
+                                            title={`Rename ${label.toLowerCase()}`}
+                                            aria-label={`Rename ${item.name}`}
+                                            className="text-[#7E7E86] transition-colors hover:text-[#432817]"
+                                        >
                                             <Pencil size={12} />
                                         </button>
                                     )}
-                                    <button type="button" onClick={() => setDeleteTarget(item)} className="text-[#9B4635] hover:text-[#7a3226]">
+                                    <button
+                                        type="button"
+                                        onClick={() => setDeleteTarget(item)}
+                                        title={`Delete ${label.toLowerCase()}`}
+                                        aria-label={`Delete ${item.name}`}
+                                        className="text-[#9B4635] transition-colors hover:text-[#7a3226]"
+                                    >
                                         <Trash2 size={12} />
                                     </button>
                                 </div>
@@ -407,7 +499,7 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
                 </div>
 
                 {deleteTarget && (
-                    <div className="mt-4 border-l-2 border-[#9B4635] bg-[#9B4635]/5 px-3 py-2.5 text-xs text-[#7a3226]">
+                    <div className="mt-4 animate-[fadeIn_0.15s_ease-out] border-l-2 border-[#9B4635] bg-[#9B4635]/5 px-3 py-2.5 text-xs text-[#7a3226]">
                         Delete "{deleteTarget.name}"?
                         <div className="mt-2 flex gap-3">
                             <button type="button" onClick={confirmDelete} className="font-medium underline">Yes, delete</button>
@@ -428,18 +520,35 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
     const [form, setForm] = useState(initialData || EMPTY_PRODUCT);
     const [error, setError] = useState("");
     const [uploading, setUploading] = useState(false);
+    const [isDraggingImage, setIsDraggingImage] = useState(false);
 
+    // BUG FIX: this used to depend on [initialData] only. Create → Save →
+    // Close → Create again always passes initialData=null both times (the
+    // SAME value), so this effect never re-ran and the form kept showing
+    // whatever was left over from the previous product. Adding `mode` means
+    // every null→"create" / null→"edit" transition (i.e. every time the
+    // popover actually opens) forces a reset, even when initialData didn't
+    // change.
     useEffect(() => {
         setForm(initialData || EMPTY_PRODUCT);
         setError("");
-    }, [initialData]);
+    }, [initialData, mode]);
+
+    const busy = saving || uploading;
+    useEscapeToClose(!!mode, busy, onClose);
+
+    const handleOverlayClick = () => {
+        if (busy) return;
+        onClose();
+    };
 
     if (!mode) return null;
 
     const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
-    const handleFileChange = async (e) => {
-        const file = e.target.files?.[0];
+    // Shared upload logic for the product image — used by both the file
+    // picker (onChange) and drag & drop (onDrop).
+    const processImageFile = async (file) => {
         if (!file) return;
         setUploading(true);
         setError("");
@@ -451,6 +560,21 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
         } finally {
             setUploading(false);
         }
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        // Reset the native input value so selecting the exact same file
+        // again later (e.g. after removing it) still fires onChange.
+        e.target.value = "";
+        await processImageFile(file);
+    };
+
+    const handleImageDrop = async (e) => {
+        e.preventDefault();
+        setIsDraggingImage(false);
+        if (uploading) return;
+        await processImageFile(e.dataTransfer.files?.[0]);
     };
 
     const handleSubmit = (e) => {
@@ -466,29 +590,40 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
     const descriptionLength = (form.description || "").length;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4" onClick={onClose}>
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4 animate-[fadeIn_0.15s_ease-out]"
+            onClick={handleOverlayClick}
+        >
             <form
                 onSubmit={handleSubmit}
-                className="max-h-[88vh] w-full max-w-lg overflow-y-auto border border-[#D1B79E] bg-[#EDE6DA] px-6 py-6"
+                className="max-h-[88vh] w-full max-w-lg overflow-y-auto border border-[#D1B79E] bg-[#EDE6DA] px-6 py-6 animate-[fadeIn_0.2s_ease-out]"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between">
                     <p className="font-serif text-lg text-[#432817]">
                         {mode === "create" ? "Add a new product" : "Edit product"}
                     </p>
-                    <button type="button" onClick={onClose} className="text-[#7E7E86] hover:text-[#432817]">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        title="Close"
+                        aria-label="Close"
+                        className="text-[#7E7E86] transition-colors hover:text-[#432817]"
+                    >
                         <X size={16} />
                     </button>
                 </div>
 
                 <div className="mt-5 space-y-4">
                     <div>
-                        <label className="mb-1 block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">Name</label>
+                        <label className="mb-1 block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">
+                            Name <span className="text-[#9B4635]">*</span>
+                        </label>
                         <input
                             type="text"
                             value={form.name}
                             onChange={(e) => update("name", e.target.value)}
-                            className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                            className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                         />
                     </div>
 
@@ -506,19 +641,21 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             onChange={(e) => update("description", e.target.value.slice(0, DESCRIPTION_MAX_LENGTH))}
                             rows={3}
                             placeholder="Fabric, fit, styling notes…"
-                            className="w-full resize-none border border-[#D1B79E] bg-transparent px-3 py-2 text-xs leading-relaxed outline-none focus:border-[#432817]"
+                            className="w-full resize-none border border-[#D1B79E] bg-transparent px-3 py-2 text-xs leading-relaxed outline-none transition-colors focus:border-[#432817]"
                         />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="mb-1 block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">Price</label>
+                            <label className="mb-1 block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">
+                                Price <span className="text-[#9B4635]">*</span>
+                            </label>
                             <input
                                 type="number"
                                 step="0.01"
                                 value={form.price}
                                 onChange={(e) => update("price", e.target.value)}
-                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                             />
                         </div>
                         <div>
@@ -528,7 +665,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                                 step="0.01"
                                 value={form.sale_price}
                                 onChange={(e) => update("sale_price", e.target.value)}
-                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                             />
                         </div>
                     </div>
@@ -536,11 +673,19 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                     {/* Image upload */}
                     <div>
                         <label className="mb-1 block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">
-                            Product image
+                            Product image <span className="text-[#9B4635]">*</span>
                         </label>
-                        <label className="flex cursor-pointer items-center gap-2 border border-dashed border-[#D1B79E] px-4 py-3 text-xs text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]">
+                        <label
+                            className={`flex cursor-pointer items-center gap-2 border border-dashed px-4 py-3 text-xs transition-colors ${isDraggingImage
+                                    ? "border-[#432817] bg-[#432817]/5 text-[#432817]"
+                                    : "border-[#D1B79E] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]"
+                                }`}
+                            onDragOver={(e) => { e.preventDefault(); if (!uploading) setIsDraggingImage(true); }}
+                            onDragLeave={() => setIsDraggingImage(false)}
+                            onDrop={handleImageDrop}
+                        >
                             <UploadCloud size={14} />
-                            {uploading ? "Uploading…" : "Click to upload an image"}
+                            {uploading ? "Uploading…" : "Click to upload, or drag & drop an image"}
                             <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} disabled={uploading} />
                         </label>
 
@@ -562,11 +707,13 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
 
                     <div className="grid grid-cols-3 gap-4">
                         <div>
-                            <label className="mb-1 block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">Category</label>
+                            <label className="mb-1 block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">
+                                Category <span className="text-[#9B4635]">*</span>
+                            </label>
                             <select
                                 value={form.category_id}
                                 onChange={(e) => update("category_id", e.target.value)}
-                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                             >
                                 <option value="">Select…</option>
                                 {categories.map((c) => (
@@ -579,7 +726,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             <select
                                 value={form.brand_id || ""}
                                 onChange={(e) => update("brand_id", e.target.value)}
-                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                             >
                                 <option value="">No brand</option>
                                 {brands.map((b) => (
@@ -592,7 +739,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             <select
                                 value={form.filter_category || ""}
                                 onChange={(e) => update("filter_category", e.target.value)}
-                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                             >
                                 <option value="">—</option>
                                 {FILTER_CATEGORIES.map((f) => (
@@ -609,7 +756,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             value={form.type || ""}
                             onChange={(e) => update("type", e.target.value)}
                             placeholder="Shirts, Shoes..."
-                            className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                            className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                         />
                     </div>
 
@@ -619,7 +766,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             <select
                                 value={form.badge || ""}
                                 onChange={(e) => update("badge", e.target.value)}
-                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                             >
                                 {BADGES.map((b) => (
                                     <option key={b || "none"} value={b}>{b || "None"}</option>
@@ -631,7 +778,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             <select
                                 value={form.status || "active"}
                                 onChange={(e) => update("status", e.target.value)}
-                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                                className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                             >
                                 {STATUSES.map((s) => (
                                     <option key={s} value={s} className="capitalize">{s}</option>
@@ -856,10 +1003,16 @@ export default function AdminProducts() {
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                         placeholder="Search products"
-                        className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 pl-6 pr-6 text-xs outline-none placeholder:text-[#a89b8c] focus:border-[#432817]"
+                        className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 pl-6 pr-6 text-xs outline-none transition-colors placeholder:text-[#a89b8c] focus:border-[#432817]"
                     />
                     {searchInput && (
-                        <button type="button" onClick={() => setSearchInput("")} className="absolute right-0 top-1/2 -translate-y-1/2 text-[#7E7E86] hover:text-[#432817]">
+                        <button
+                            type="button"
+                            onClick={() => setSearchInput("")}
+                            title="Clear search"
+                            aria-label="Clear search"
+                            className="absolute right-0 top-1/2 -translate-y-1/2 text-[#7E7E86] transition-colors hover:text-[#432817]"
+                        >
                             <X size={13} />
                         </button>
                     )}
@@ -868,7 +1021,7 @@ export default function AdminProducts() {
                 <select
                     value={categoryFilter}
                     onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
-                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                 >
                     <option value="">All categories</option>
                     {categories.map((c) => (
@@ -879,7 +1032,7 @@ export default function AdminProducts() {
                 <select
                     value={brandFilter}
                     onChange={(e) => { setBrandFilter(e.target.value); setPage(1); }}
-                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                 >
                     <option value="">All brands</option>
                     {brands.map((b) => (
@@ -890,7 +1043,7 @@ export default function AdminProducts() {
                 <select
                     value={collectionFilter}
                     onChange={(e) => { setCollectionFilter(e.target.value); setPage(1); }}
-                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none transition-colors focus:border-[#432817]"
                 >
                     {COLLECTIONS.map((c) => (
                         <option key={c.value || "all"} value={c.value}>{c.label}</option>
@@ -900,7 +1053,7 @@ export default function AdminProducts() {
                 <select
                     value={statusFilter}
                     onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs capitalize outline-none focus:border-[#432817]"
+                    className="border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs capitalize outline-none transition-colors focus:border-[#432817]"
                 >
                     <option value="">All statuses</option>
                     {STATUSES.map((s) => (
@@ -922,21 +1075,21 @@ export default function AdminProducts() {
                     <button
                         type="button"
                         onClick={() => setTaxonomyPopover("category")}
-                        className="flex items-center gap-1.5 border border-[#A78361] px-3 py-2 text-[9px] font-medium tracking-[0.15em] uppercase text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
+                        className="flex items-center gap-1.5 border border-[#A78361] px-3 py-2 text-[9px] font-medium tracking-[0.15em] uppercase text-[#432817] transition-colors hover:bg-[#432817] hover:text-[#EDE6DA]"
                     >
                         <Tag size={12} /> Categories
                     </button>
                     <button
                         type="button"
                         onClick={() => setTaxonomyPopover("brand")}
-                        className="flex items-center gap-1.5 border border-[#A78361] px-3 py-2 text-[9px] font-medium tracking-[0.15em] uppercase text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
+                        className="flex items-center gap-1.5 border border-[#A78361] px-3 py-2 text-[9px] font-medium tracking-[0.15em] uppercase text-[#432817] transition-colors hover:bg-[#432817] hover:text-[#EDE6DA]"
                     >
                         <Tag size={12} /> Brands
                     </button>
                     <button
                         type="button"
                         onClick={openCreate}
-                        className="flex items-center gap-2 bg-[#432817] px-4 py-2 text-[9px] font-medium tracking-[0.18em] text-[#EDE6DA] uppercase hover:bg-[#5a3720]"
+                        className="flex items-center gap-2 bg-[#432817] px-4 py-2 text-[9px] font-medium tracking-[0.18em] text-[#EDE6DA] uppercase transition-colors hover:bg-[#5a3720]"
                     >
                         <Plus size={13} /> Add product
                     </button>
@@ -996,10 +1149,22 @@ export default function AdminProducts() {
                                     </span>
                                 )}
                                 <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/40 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-                                    <button type="button" onClick={() => openEdit(p)} className="rounded-full bg-white/90 p-1.5 text-[#432817] hover:bg-white">
+                                    <button
+                                        type="button"
+                                        onClick={() => openEdit(p)}
+                                        title="Edit product"
+                                        aria-label={`Edit ${p.name}`}
+                                        className="rounded-full bg-white/90 p-1.5 text-[#432817] transition-transform hover:scale-110 hover:bg-white"
+                                    >
                                         <Pencil size={12} />
                                     </button>
-                                    <button type="button" onClick={() => setDeleteTarget(p)} className="rounded-full bg-white/90 p-1.5 text-[#9B4635] hover:bg-white">
+                                    <button
+                                        type="button"
+                                        onClick={() => setDeleteTarget(p)}
+                                        title="Delete product"
+                                        aria-label={`Delete ${p.name}`}
+                                        className="rounded-full bg-white/90 p-1.5 text-[#9B4635] transition-transform hover:scale-110 hover:bg-white"
+                                    >
                                         <Trash2 size={12} />
                                     </button>
                                 </div>
@@ -1034,10 +1199,10 @@ export default function AdminProducts() {
             <div className="mt-6 flex items-center justify-between text-[11px] text-[#7E7E86]">
                 <span>Page {page} of {totalPages} · {total} product{total === 1 ? "" : "s"}</span>
                 <div className="flex gap-1">
-                    <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30">
+                    <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1.5 uppercase tracking-wide transition-colors hover:text-[#432817] disabled:opacity-30">
                         Prev
                     </button>
-                    <button type="button" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-3 py-1.5 uppercase tracking-wide hover:text-[#432817] disabled:opacity-30">
+                    <button type="button" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-3 py-1.5 uppercase tracking-wide transition-colors hover:text-[#432817] disabled:opacity-30">
                         Next
                     </button>
                 </div>

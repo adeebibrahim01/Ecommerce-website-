@@ -419,6 +419,7 @@ app.get('/admin/products', requireAdmin, async (c) => {
 app.post('/admin/products', requireAdmin, async (c) => {
     try {
         const body = await c.req.json();
+        console.log('Received body:', JSON.stringify(body));
         const { name, price, image, category_id } = body;
 
         if (!name || !price || !image || !category_id) {
