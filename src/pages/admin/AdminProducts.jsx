@@ -4,6 +4,7 @@ import { Search, X, Plus, Pencil, Trash2, Package, Tag, UploadCloud } from "luci
 const API_BASE_URL = "https://product-worker-service.adeebibrahim01.workers.dev";
 const PAGE_SIZE = 12;
 const SEARCH_DEBOUNCE_MS = 350;
+const DESCRIPTION_MAX_LENGTH = 300;
 
 async function productFetch(path, options = {}) {
     const token = localStorage.getItem("admin_auth_token");
@@ -20,7 +21,8 @@ async function productFetch(path, options = {}) {
     return data;
 }
 
-async function uploadImageToCloudinary(file) {
+// folder: "Home/Products" ya "Home/Brands" — jahan se call ho wahi decide karta hai
+async function uploadImageToCloudinary(file, folder) {
     const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
     const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
     if (!cloudName || !uploadPreset) {
@@ -29,6 +31,7 @@ async function uploadImageToCloudinary(file) {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("upload_preset", uploadPreset);
+    if (folder) formData.append("folder", folder);
 
     const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
         method: "POST",
@@ -40,6 +43,11 @@ async function uploadImageToCloudinary(file) {
     }
     return data.secure_url;
 }
+
+const CLOUDINARY_FOLDERS = {
+    product: "Home/Products",
+    brand: "Home/Brands",
+};
 
 const FILTER_CATEGORIES = ["Tops", "Bottoms", "Outerwear", "Shoes", "Clothing", "Accessories"];
 const BADGES = ["", "New", "Bestseller", "Sale"];
@@ -59,6 +67,7 @@ function money(n) {
 
 const EMPTY_PRODUCT = {
     name: "",
+    description: "",
     price: "",
     sale_price: "",
     image: "",
@@ -95,12 +104,42 @@ function ToastStack({ toasts }) {
             {toasts.map((t) => (
                 <div
                     key={t.id}
-                    className="min-w-[220px] max-w-xs border-l-2 bg-[#EDE6DA] px-4 py-3 text-xs text-[#432817] shadow-[0_4px_20px_rgba(67,40,23,0.12)]"
+                    className="min-w-[220px] max-w-xs border-l-2 bg-[#EDE6DA] px-4 py-3 text-xs text-[#432817] shadow-[0_4px_20px_rgba(67,40,23,0.12)] animate-[fadeIn_0.2s_ease-out]"
                     style={{ borderColor: borderColor[t.tone] || borderColor.neutral }}
                 >
                     {t.message}
                 </div>
             ))}
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Skeletons
+// ─────────────────────────────────────────────────────────────
+
+function ProductCardSkeleton() {
+    return (
+        <div className="border border-[#D1B79E]/60 bg-white/40">
+            <div className="aspect-[3/4] animate-pulse bg-[#D1B79E]/30" />
+            <div className="space-y-2 p-3">
+                <div className="h-3 w-3/4 animate-pulse rounded-sm bg-[#D1B79E]/40" />
+                <div className="h-2.5 w-1/2 animate-pulse rounded-sm bg-[#D1B79E]/25" />
+                <div className="h-2.5 w-full animate-pulse rounded-sm bg-[#D1B79E]/20" />
+                <div className="h-3 w-1/3 animate-pulse rounded-sm bg-[#D1B79E]/40" />
+            </div>
+        </div>
+    );
+}
+
+function TaxonomyRowSkeleton() {
+    return (
+        <div className="flex items-center gap-2.5 py-2.5">
+            <div className="h-8 w-8 shrink-0 animate-pulse rounded-sm bg-[#D1B79E]/30" />
+            <div className="flex-1 space-y-1.5">
+                <div className="h-3 w-1/2 animate-pulse rounded-sm bg-[#D1B79E]/40" />
+                <div className="h-2 w-1/4 animate-pulse rounded-sm bg-[#D1B79E]/25" />
+            </div>
         </div>
     );
 }
@@ -143,9 +182,12 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newName, setNewName] = useState("");
+    const [newImage, setNewImage] = useState("");
+    const [uploadingNew, setUploadingNew] = useState(false);
     const [adding, setAdding] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [editingName, setEditingName] = useState("");
+    const [logoUploadingId, setLogoUploadingId] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
 
     const load = useCallback(async () => {
@@ -162,13 +204,31 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
 
     useEffect(() => { load(); }, [load]);
 
+    const handleNewImageChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingNew(true);
+        try {
+            const url = await uploadImageToCloudinary(file, CLOUDINARY_FOLDERS.brand);
+            setNewImage(url);
+        } catch (err) {
+            push(err.message || "Image upload failed.", "bad");
+        } finally {
+            setUploadingNew(false);
+        }
+    };
+
     const handleAdd = async (e) => {
         e.preventDefault();
         if (!newName.trim()) return;
         setAdding(true);
         try {
-            await productFetch(basePath, { method: "POST", body: JSON.stringify({ name: newName.trim() }) });
+            const payload = isCategory
+                ? { name: newName.trim() }
+                : { name: newName.trim(), logo: newImage || null };
+            await productFetch(basePath, { method: "POST", body: JSON.stringify(payload) });
             setNewName("");
+            setNewImage("");
             push(`${label} added.`, "good");
             await load();
             onChanged();
@@ -197,6 +257,26 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
         }
     };
 
+    const handleLogoChange = async (item, e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setLogoUploadingId(item.id);
+        try {
+            const url = await uploadImageToCloudinary(file, CLOUDINARY_FOLDERS.brand);
+            await productFetch(`${basePath}/${item.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ name: item.name, logo: url }),
+            });
+            push("Logo updated.", "good");
+            await load();
+            onChanged();
+        } catch (err) {
+            push(err.message || "Logo update failed.", "bad");
+        } finally {
+            setLogoUploadingId(null);
+        }
+    };
+
     const confirmDelete = async () => {
         const target = deleteTarget;
         setDeleteTarget(null);
@@ -220,50 +300,93 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
                     </button>
                 </div>
 
-                <form onSubmit={handleAdd} className="mt-4 flex gap-2">
-                    <input
-                        type="text"
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        placeholder={`New ${label.toLowerCase()} name`}
-                        className="flex-1 border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
-                    />
-                    <button
-                        type="submit"
-                        disabled={adding || !newName.trim()}
-                        className="flex items-center gap-1 bg-[#432817] px-3 py-2 text-[9px] font-medium tracking-[0.15em] text-[#EDE6DA] uppercase hover:bg-[#5a3720] disabled:opacity-50"
-                    >
-                        <Plus size={12} /> Add
-                    </button>
+                <form onSubmit={handleAdd} className="mt-4 space-y-3">
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            placeholder={`New ${label.toLowerCase()} name`}
+                            className="flex-1 border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                        />
+                        <button
+                            type="submit"
+                            disabled={adding || uploadingNew || !newName.trim()}
+                            className="flex items-center gap-1 bg-[#432817] px-3 py-2 text-[9px] font-medium tracking-[0.15em] text-[#EDE6DA] uppercase hover:bg-[#5a3720] disabled:opacity-50"
+                        >
+                            <Plus size={12} /> Add
+                        </button>
+                    </div>
+
+                    {!isCategory && (
+                        <div className="flex items-center gap-3">
+                            <label className="flex cursor-pointer items-center gap-2 border border-dashed border-[#D1B79E] px-3 py-2 text-[10px] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]">
+                                <UploadCloud size={12} />
+                                {uploadingNew ? "Uploading…" : "Upload logo (optional)"}
+                                <input type="file" accept="image/*" className="hidden" onChange={handleNewImageChange} disabled={uploadingNew} />
+                            </label>
+                            {newImage && (
+                                <div className="flex items-center gap-2">
+                                    <img src={newImage} alt="" className="h-8 w-8 rounded-sm object-cover" />
+                                    <button type="button" onClick={() => setNewImage("")} className="text-[10px] text-[#9B4635] underline">
+                                        Remove
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </form>
 
                 <div className="mt-5 divide-y divide-[#D1B79E]/40">
                     {loading ? (
-                        <p className="py-4 text-xs text-[#7E7E86]">Loading…</p>
+                        Array.from({ length: 4 }).map((_, i) => <TaxonomyRowSkeleton key={i} />)
                     ) : items.length === 0 ? (
                         <p className="py-4 text-xs text-[#7E7E86]">No {label.toLowerCase()}s yet.</p>
                     ) : (
                         items.map((item) => (
                             <div key={item.id} className="flex items-center justify-between gap-2 py-2.5">
-                                {editingId === item.id ? (
-                                    <input
-                                        type="text"
-                                        value={editingName}
-                                        onChange={(e) => setEditingName(e.target.value)}
-                                        onKeyDown={(e) => e.key === "Enter" && saveEdit(item.id)}
-                                        autoFocus
-                                        className="flex-1 border-0 border-b border-[#432817] bg-transparent py-1 text-xs outline-none"
-                                    />
-                                ) : (
-                                    <div className="min-w-0 flex-1">
-                                        <p className="truncate text-xs text-[#432817]">{item.name}</p>
-                                        {typeof item.product_count === "number" && (
-                                            <p className="text-[10px] text-[#7E7E86]">
-                                                {item.product_count} product{item.product_count === 1 ? "" : "s"}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
+                                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                    {!isCategory && (
+                                        <label className="relative shrink-0 cursor-pointer">
+                                            {item.logo ? (
+                                                <img src={item.logo} alt="" className="h-8 w-8 rounded-sm object-cover" />
+                                            ) : (
+                                                <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-[#D1B79E]/30">
+                                                    <UploadCloud size={12} className="text-[#7E7E86]" />
+                                                </div>
+                                            )}
+                                            {logoUploadingId === item.id && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-[7px] text-white">…</div>
+                                            )}
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="hidden"
+                                                onChange={(e) => handleLogoChange(item, e)}
+                                                disabled={logoUploadingId === item.id}
+                                            />
+                                        </label>
+                                    )}
+                                    {editingId === item.id ? (
+                                        <input
+                                            type="text"
+                                            value={editingName}
+                                            onChange={(e) => setEditingName(e.target.value)}
+                                            onKeyDown={(e) => e.key === "Enter" && saveEdit(item.id)}
+                                            autoFocus
+                                            className="flex-1 border-0 border-b border-[#432817] bg-transparent py-1 text-xs outline-none"
+                                        />
+                                    ) : (
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-xs text-[#432817]">{item.name}</p>
+                                            {typeof item.product_count === "number" && (
+                                                <p className="text-[10px] text-[#7E7E86]">
+                                                    {item.product_count} product{item.product_count === 1 ? "" : "s"}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="flex shrink-0 gap-2">
                                     {editingId === item.id ? (
                                         <button type="button" onClick={() => saveEdit(item.id)} className="text-[10px] font-medium text-[#432817] underline">
@@ -321,7 +444,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
         setUploading(true);
         setError("");
         try {
-            const url = await uploadImageToCloudinary(file);
+            const url = await uploadImageToCloudinary(file, CLOUDINARY_FOLDERS.product);
             update("image", url);
         } catch (err) {
             setError(err.message || "Image upload failed.");
@@ -339,6 +462,8 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
         setError("");
         onSave(form);
     };
+
+    const descriptionLength = (form.description || "").length;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#432817]/25 px-4" onClick={onClose}>
@@ -364,6 +489,24 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             value={form.name}
                             onChange={(e) => update("name", e.target.value)}
                             className="w-full border-0 border-b border-[#D1B79E] bg-transparent py-2 text-xs outline-none focus:border-[#432817]"
+                        />
+                    </div>
+
+                    <div>
+                        <div className="mb-1 flex items-center justify-between">
+                            <label className="block text-[9px] font-medium tracking-[0.15em] text-[#7E7E86] uppercase">
+                                Description
+                            </label>
+                            <span className={`text-[9px] ${descriptionLength >= DESCRIPTION_MAX_LENGTH ? "text-[#9B4635]" : "text-[#a89b8c]"}`}>
+                                {descriptionLength}/{DESCRIPTION_MAX_LENGTH}
+                            </span>
+                        </div>
+                        <textarea
+                            value={form.description || ""}
+                            onChange={(e) => update("description", e.target.value.slice(0, DESCRIPTION_MAX_LENGTH))}
+                            rows={3}
+                            placeholder="Fabric, fit, styling notes…"
+                            className="w-full resize-none border border-[#D1B79E] bg-transparent px-3 py-2 text-xs leading-relaxed outline-none focus:border-[#432817]"
                         />
                     </div>
 
@@ -401,7 +544,9 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} disabled={uploading} />
                         </label>
 
-                        {form.image && (
+                        {uploading ? (
+                            <div className="mt-2 h-16 w-16 animate-pulse rounded-sm bg-[#D1B79E]/40" />
+                        ) : form.image ? (
                             <div className="mt-2 flex items-center gap-2">
                                 <img src={form.image} alt="Preview" className="h-16 w-16 rounded-sm object-cover" />
                                 <button
@@ -412,7 +557,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                                     Remove
                                 </button>
                             </div>
-                        )}
+                        ) : null}
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
@@ -515,8 +660,11 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                     <button
                         type="submit"
                         disabled={saving || uploading}
-                        className="mt-2 w-full bg-[#432817] py-3 text-[10px] font-medium tracking-[0.2em] text-[#EDE6DA] uppercase hover:bg-[#5a3720] disabled:opacity-50"
+                        className="mt-2 flex w-full items-center justify-center gap-2 bg-[#432817] py-3 text-[10px] font-medium tracking-[0.2em] text-[#EDE6DA] uppercase transition hover:bg-[#5a3720] disabled:opacity-50"
                     >
+                        {saving && (
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#EDE6DA]/40 border-t-[#EDE6DA]" />
+                        )}
                         {saving ? "Saving…" : mode === "create" ? "Add product" : "Save changes"}
                     </button>
                 </div>
@@ -555,6 +703,7 @@ export default function AdminProducts() {
     const [taxonomyPopover, setTaxonomyPopover] = useState(null); // null | "category" | "brand"
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const hasActiveFilters = !!(search || categoryFilter || brandFilter || collectionFilter || statusFilter);
 
     const loadTaxonomies = useCallback(async () => {
         try {
@@ -601,6 +750,14 @@ export default function AdminProducts() {
 
     useEffect(() => { loadProducts(); }, [loadProducts]);
 
+    const clearFilters = () => {
+        setSearchInput("");
+        setCategoryFilter("");
+        setBrandFilter("");
+        setCollectionFilter("");
+        setStatusFilter("");
+    };
+
     const openCreate = () => {
         setEditingProduct(null);
         setFormMode("create");
@@ -609,6 +766,7 @@ export default function AdminProducts() {
     const openEdit = (product) => {
         setEditingProduct({
             ...product,
+            description: product.description || "",
             category_id: product.category_id ?? "",
             brand_id: product.brand_id ?? "",
             sale_price: product.sale_price ?? "",
@@ -628,6 +786,7 @@ export default function AdminProducts() {
         setSaving(true);
         const payload = {
             ...form,
+            description: form.description?.trim() ? form.description.trim() : null,
             price: Number(form.price),
             sale_price: form.sale_price === "" ? null : Number(form.sale_price),
             category_id: Number(form.category_id),
@@ -749,6 +908,16 @@ export default function AdminProducts() {
                     ))}
                 </select>
 
+                {hasActiveFilters && (
+                    <button
+                        type="button"
+                        onClick={clearFilters}
+                        className="text-[9px] font-medium tracking-[0.15em] text-[#9B4635] uppercase underline underline-offset-2 hover:text-[#7a3226]"
+                    >
+                        Clear filters
+                    </button>
+                )}
+
                 <div className="ml-auto flex gap-2">
                     <button
                         type="button"
@@ -775,8 +944,11 @@ export default function AdminProducts() {
             </div>
 
             {errorMessage && (
-                <div className="mb-5 border-l-2 border-[#9B4635] bg-[#9B4635]/5 px-4 py-3 text-xs text-[#7a3226]">
-                    {errorMessage}
+                <div className="mb-5 flex items-center justify-between gap-4 border-l-2 border-[#9B4635] bg-[#9B4635]/5 px-4 py-3 text-xs text-[#7a3226]">
+                    <span>{errorMessage}</span>
+                    <button type="button" onClick={loadProducts} className="shrink-0 font-medium underline">
+                        Retry
+                    </button>
                 </div>
             )}
 
@@ -784,21 +956,30 @@ export default function AdminProducts() {
             {loading ? (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                     {Array.from({ length: 8 }).map((_, i) => (
-                        <div key={i} className="h-64 animate-pulse rounded-sm bg-[#D1B79E]/30" />
+                        <ProductCardSkeleton key={i} />
                     ))}
                 </div>
             ) : products.length === 0 ? (
                 <div className="py-14 text-center">
                     <p className="font-serif text-lg text-[#432817]">No products match those filters.</p>
                     <p className="mt-1 text-[11px] text-[#7E7E86]">Try clearing a filter, or add a new product.</p>
+                    {hasActiveFilters && (
+                        <button
+                            type="button"
+                            onClick={clearFilters}
+                            className="mt-4 text-[10px] font-medium tracking-[0.15em] text-[#432817] uppercase underline underline-offset-2"
+                        >
+                            Clear filters
+                        </button>
+                    )}
                 </div>
             ) : (
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                     {products.map((p) => (
-                        <div key={p.id} className="group relative border border-[#D1B79E]/60 bg-white/40">
+                        <div key={p.id} className="group relative border border-[#D1B79E]/60 bg-white/40 transition-shadow hover:shadow-[0_4px_20px_rgba(67,40,23,0.08)]">
                             <div className="relative aspect-[3/4] overflow-hidden bg-[#D1B79E]/20">
                                 {p.image ? (
-                                    <img src={p.image} alt={p.name} className="h-full w-full object-cover" />
+                                    <img src={p.image} alt={p.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
                                 ) : (
                                     <div className="flex h-full w-full items-center justify-center">
                                         <Package size={20} className="text-[#7E7E86]" />
@@ -828,6 +1009,11 @@ export default function AdminProducts() {
                                 <p className="mt-0.5 text-[10px] text-[#7E7E86]">
                                     {p.category_name || "—"}{p.brand_name ? ` · ${p.brand_name}` : ""}
                                 </p>
+                                {p.description && (
+                                    <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-[#9C8C7A]">
+                                        {p.description}
+                                    </p>
+                                )}
                                 <div className="mt-1.5 flex items-baseline gap-2">
                                     {p.sale_price ? (
                                         <>

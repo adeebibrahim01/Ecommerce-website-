@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Heart, ShoppingBag, ArrowLeft, Minus, Plus, Check } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useCart } from "../hooks/useCart";
+import { getProductPath, parseProductId } from "../utils/productUrl";
 
 const API_BASE =
   import.meta.env.VITE_PRODUCT_API_URL || "https://product-worker-service.adeebibrahim01.workers.dev";
@@ -24,16 +25,68 @@ function normalizeProduct(row) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────
+// Skeleton — mirrors the real layout below so there's no layout
+// shift once the product data arrives.
+// ─────────────────────────────────────────────────────────────
+
+function ProductDetailSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl px-5 py-12 sm:px-8 md:px-12 lg:px-16">
+      <div className="mb-8 h-3 w-40 animate-pulse rounded-sm bg-[#D1B79E]/30" />
+
+      <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
+        {/* Image placeholder */}
+        <div className="aspect-[3/4] animate-pulse bg-[#D1B79E]/30" />
+
+        {/* Details placeholder */}
+        <div className="flex flex-col justify-center">
+          <div className="h-2.5 w-1/3 animate-pulse rounded-sm bg-[#D1B79E]/25" />
+          <div className="mt-4 h-9 w-3/4 animate-pulse rounded-sm bg-[#D1B79E]/40" />
+
+          <div className="mt-4 flex items-baseline gap-3">
+            <div className="h-6 w-20 animate-pulse rounded-sm bg-[#D1B79E]/35" />
+            <div className="h-4 w-14 animate-pulse rounded-sm bg-[#D1B79E]/20" />
+          </div>
+
+          <div className="my-6 h-[1px] w-full bg-[#D1B79E]/40" />
+
+          <div className="space-y-2">
+            <div className="h-2.5 w-full animate-pulse rounded-sm bg-[#D1B79E]/25" />
+            <div className="h-2.5 w-full animate-pulse rounded-sm bg-[#D1B79E]/25" />
+            <div className="h-2.5 w-2/3 animate-pulse rounded-sm bg-[#D1B79E]/25" />
+          </div>
+
+          <div className="mt-8 flex items-center gap-6">
+            <div className="h-2.5 w-16 animate-pulse rounded-sm bg-[#D1B79E]/30" />
+            <div className="h-10 w-28 animate-pulse rounded-sm bg-[#D1B79E]/25" />
+          </div>
+
+          <div className="mt-8 flex items-center gap-4">
+            <div className="h-[52px] flex-1 animate-pulse rounded-sm bg-[#D1B79E]/35" />
+            <div className="h-[52px] w-[52px] shrink-0 animate-pulse rounded-sm bg-[#D1B79E]/25" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProductDetail() {
-  const { id } = useParams();
+  const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // The route param can be a plain old id ("5") or the new
+  // professional slug ("elegant-silk-evening-dress-5") — either
+  // way, the real numeric id is what we fetch and key everything by.
+  const id = parseProductId(slug);
 
   const activeUserId = user?.id || user?._id || user?.sub || user?.email || null;
 
   // Same hook, same query key ("cart", activeUserId) as Navbar and CartPage —
   // so an add here is instantly visible everywhere else, no custom events needed.
-  const { cartItems, addToCart, isMutating } = useCart(activeUserId);
+  const { cartItems, addToCart, isMutating, isLoading: cartLoading } = useCart(activeUserId);
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -46,8 +99,22 @@ export default function ProductDetail() {
 
   // Database se product laana hai — /products/:id koi auth nahi maangta.
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      // Slug se koi numeric id nahi mil saka (badly formed URL).
+      setLoading(false);
+      setProduct(null);
+      setError("Product not found.");
+      return;
+    }
+
     const controller = new AbortController();
+    // `controller.signal.aborted` akela kaafi nahi hai — jab yeh effect
+    // StrictMode (dev) mein double-run hota hai, pehli request abort ho
+    // kar bhi apna `.finally` chalati hai, jo `loading` ko waqt se pehle
+    // false kar deta tha (product abhi tak null hone ki wajah se "Product
+    // not found" ek pal ke liye flash ho jata tha). `cancelled` flag har
+    // stale request ke result ko UI tak pohanchne se rok deta hai.
+    let cancelled = false;
 
     setLoading(true);
     setError(null);
@@ -58,16 +125,45 @@ export default function ProductDetail() {
         if (!res.ok || !data?.success) {
           throw new Error(data?.message || "Product not found.");
         }
+        if (cancelled) return;
         setProduct(normalizeProduct(data.product));
       })
       .catch((err) => {
-        if (err.name === "AbortError") return;
+        if (cancelled || err.name === "AbortError") return;
         console.error("Error loading product:", err);
         setError(err.message || "Failed to load product details.");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
 
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [id]);
+
+  // Product load hote hi URL ko canonical, human-readable slug mein
+  // "upgrade" kar dete hain (jaise YouTube apne share links ke sath
+  // karta hai) — replace: true taake back button par ye extra step
+  // na aaye. Agar koi already sahi slug pe hai to kuch nahi hota.
+  useEffect(() => {
+    if (!product) return;
+    const canonicalPath = getProductPath(product);
+    if (canonicalPath !== `/product/${slug}`) {
+      navigate(canonicalPath, { replace: true });
+    }
+  }, [product, slug, navigate]);
+
+  // Reset transient UI state whenever we land on a different product.
+  // Keyed off `id` (not `slug`) so the canonical-slug redirect above
+  // — which changes the URL but not the product — doesn't reset the
+  // quantity picker or wishlist toggle the user just set.
+  useEffect(() => {
+    setQuantity(1);
+    setLiked(false);
+    setCartMessage("");
   }, [id]);
 
   // How many of this product are already in the bag — purely informational.
@@ -109,11 +205,7 @@ export default function ProductDetail() {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-[70vh] items-center justify-center">
-        <p className="text-xs uppercase tracking-[0.2em] text-[#7E7E86]">Loading product details...</p>
-      </div>
-    );
+    return <ProductDetailSkeleton />;
   }
 
   if (error || !product) {
@@ -187,7 +279,9 @@ export default function ProductDetail() {
               "Crafted with precision and premium materials, this piece offers timeless elegance and exceptional comfort for any occasion."}
           </p>
 
-          {existingQuantity > 0 && (
+          {/* Guarded by cartLoading so this line never flashes "0 in bag"
+              before the cart query has actually resolved. */}
+          {!cartLoading && existingQuantity > 0 && (
             <p className="mt-4 text-[10px] tracking-wide text-[#6F7663]">
               {existingQuantity} already in your bag.
             </p>
@@ -229,7 +323,10 @@ export default function ProductDetail() {
                 }`}
             >
               {isMutating ? (
-                "Adding..."
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#EDE6DA]/40 border-t-[#EDE6DA]" />
+                  Adding...
+                </>
               ) : (
                 <>
                   <ShoppingBag size={16} strokeWidth={1.5} /> Add to Cart

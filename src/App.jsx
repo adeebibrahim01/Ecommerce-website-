@@ -8,8 +8,7 @@ import ProtectedRoute from "./components/auth/ProtectedRoute";
 import { useAuth } from "./hooks/useAuth";
 import OrderSuccess from "./pages/OrderSuccess";
 import Home from "./pages/Home";
-import Men from "./pages/Men";
-import Women from "./pages/Women";
+import CategoryPage from "./pages/CategoryPage";
 import CartPage from "./pages/cartpage";
 import ProductDetail from "./pages/ProductDetail";
 import LoginSuccess from "./pages/LoginSuccess";
@@ -55,7 +54,7 @@ function App() {
         element={
           <ProtectedRoute>
             <MainLayout>
-              <Men userId={userId} />
+              <CategoryPage category="men" userId={userId} />
             </MainLayout>
           </ProtectedRoute>
         }
@@ -66,12 +65,22 @@ function App() {
         element={
           <ProtectedRoute>
             <MainLayout>
-              <Women userId={userId} />
+              <CategoryPage category="women" userId={userId} />
             </MainLayout>
           </ProtectedRoute>
         }
       />
 
+      <Route
+        path="/Accessories"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CategoryPage category="Accessories" userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/cart"
         element={
@@ -82,9 +91,8 @@ function App() {
           </ProtectedRoute>
         }
       />
-
       <Route
-        path="/product/:id"
+        path="/product/:slug"
         element={
           <ProtectedRoute>
             <MainLayout>

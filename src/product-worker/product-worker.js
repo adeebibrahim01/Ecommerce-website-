@@ -427,10 +427,11 @@ app.post('/admin/products', requireAdmin, async (c) => {
 
         const result = await c.env.DB.prepare(
             `INSERT INTO products
-                (name, price, sale_price, image, category_id, brand_id, filter_category, type, badge, is_new_in, is_on_sale, featured, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                (name, description, price, sale_price, image, category_id, brand_id, filter_category, type, badge, is_new_in, is_on_sale, featured, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
             name,
+            body.description ? body.description.trim() : null,
             Number(price),
             body.sale_price ? Number(body.sale_price) : null,
             image,
@@ -456,8 +457,7 @@ app.patch('/admin/products/:id', requireAdmin, async (c) => {
     try {
         const id = c.req.param('id');
         const body = await c.req.json();
-
-        const fields = ['name', 'price', 'sale_price', 'image', 'category_id', 'brand_id', 'filter_category', 'type', 'badge', 'is_new_in', 'is_on_sale', 'featured', 'status'];
+        const fields = ['name', 'description', 'price', 'sale_price', 'image', 'category_id', 'brand_id', 'filter_category', 'type', 'badge', 'is_new_in', 'is_on_sale', 'featured', 'status'];
         const updates = [];
         const bindings = [];
 

@@ -7,22 +7,20 @@ import ProductSort from "../components/shop/ProductSort";
 import { useCart } from "../hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
 
-// FIX: pehle ye component `data/men.js` (static hardcoded file) se
-// products le raha tha. Ab is ko database se lena hai — product-worker
-// ka public `/products` endpoint (koi auth nahi chahiye) use kar rahe
-// hain, jo `category` aur `filterCategory` query params support karta
-// hai (worker code dekho: WHERE category = ? AND filter_category = ?).
-//
-// IMPORTANT: apna actual product-worker URL yahan set karo — best
-// tareeqa .env file mein VITE_PRODUCT_API_URL daalna hai, e.g.:
-//   VITE_PRODUCT_API_URL=https://aurelia-product-worker.your-subdomain.workers.dev
+// Ye grid sirf Men's page ke liye hai — is liye `category` prop nahi
+// leta (pehle wale version mein parent se "men" pass hota tha, jo
+// galti se kabhi bhi "women" ya kuch aur bhi ho sakta tha). Ab
+// `CATEGORY` hamesha fixed "men" hai, is liye is component se kabhi
+// bhi women ya koi aur category ka data load nahi ho sakta.
+const CATEGORY = "men";
+
 const API_BASE =
   import.meta.env.VITE_PRODUCT_API_URL || "https://product-worker-service.adeebibrahim01.workers.dev";
 
 // Worker ka /products endpoint max limit=50 per page allow karta hai,
-// is liye agar category mein 50 se zyada products hon to hum pagination
-// loop laga kar sab pages khींch lete hain (backend pe sab dikhane ke liye).
-async function fetchAllProductsByCategory(category, signal) {
+// is liye agar men's category mein 50 se zyada products hon to hum
+// pagination loop laga kar sab pages khींch lete hain.
+async function fetchAllMenProducts(signal) {
   const all = [];
   let page = 1;
   const limit = 50;
@@ -31,8 +29,8 @@ async function fetchAllProductsByCategory(category, signal) {
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
+      category: CATEGORY,
     });
-    if (category) params.set("category", category);
 
     const res = await fetch(`${API_BASE}/products?${params.toString()}`, {
       signal,
@@ -61,8 +59,8 @@ async function fetchAllProductsByCategory(category, signal) {
 
 // Worker se aane wala row snake_case mein hai (filter_category, sale_price
 // wagera), lekin UI (ProductFilters/ProductSort/ProductCard) camelCase
-// expect karti hai jaisa pehle `data/men.js` deta tha. Yahan normalize
-// kar rahe hain taake neeche ka baqi code bilkul same rahe.
+// expect karti hai. Yahan normalize kar rahe hain taake neeche ka baqi
+// code bilkul same rahe.
 function normalizeProduct(row) {
   return {
     id: row.id,
@@ -80,7 +78,32 @@ function normalizeProduct(row) {
 
 const SKELETON_COUNT = 8;
 
-export default function ProductGrid({ category, userId: userIdProp }) {
+// ─────────────────────────────────────────────────────────────
+// Shimmer skeleton block — Facebook-style: soft base tone + ek
+// diagonal light band jo loop mein guzarta hai. Reduced-motion
+// walon ke liye plain static tone (no animation).
+// ─────────────────────────────────────────────────────────────
+
+function ShimmerBlock({ className = "" }) {
+  return <div className={`aurelia-shimmer ${className}`} />;
+}
+
+function ProductCardSkeleton() {
+  return (
+    <div>
+      <ShimmerBlock className="aspect-[3/4] w-full overflow-hidden" />
+      <div className="pt-4">
+        <ShimmerBlock className="mb-3 h-2.5 w-14 rounded-full" />
+        <div className="flex items-start justify-between gap-4">
+          <ShimmerBlock className="h-3 w-28 rounded-full" />
+          <ShimmerBlock className="h-3 w-10 shrink-0 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function MenProductGrid({ userId: userIdProp }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("featured");
 
@@ -94,31 +117,46 @@ export default function ProductGrid({ category, userId: userIdProp }) {
 
   const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
 
-  // Database se products laana hai jab bhi `category` (page ka prop, jaise
-  // "men") change ho, ya jab user "Try again" se dobara koshish kare.
-  // Baqi filtering (selectedCategory) aur sorting client side hi hoti hai,
-  // taake UI turant respond kare aur bar bar API call na ho.
+  // Database se men's products laana hai — sirf mount pe aur jab
+  // "Try again" se dobara koshish ho (`reloadToken`), kyunke `category`
+  // ab fixed hai, prop se nahi aata. Baqi filtering (selectedCategory)
+  // aur sorting client side hoti hai taake UI turant respond kare.
+  //
+  // FIX (race condition): agar effect jaldi jaldi dobara chale (retry
+  // click ya remount), to purani (abort ho chuki) request ka
+  // `.then/.catch/.finally` bhi chal sakta hai, kyunke `abort()` sirf
+  // fetch ki promise reject karta hai, `.finally` ko rokta nahi. Is liye
+  // local `cancelled` flag rakha hai — cleanup mein `true` hota hai, aur
+  // har state-update se pehle check hota hai, taake stale request kabhi
+  // bhi latest UI ko overwrite na kare.
   useEffect(() => {
     const controller = new AbortController();
+    let cancelled = false;
 
     setIsLoadingProducts(true);
     setLoadError("");
 
-    fetchAllProductsByCategory(category, controller.signal)
+    fetchAllMenProducts(controller.signal)
       .then((rows) => {
+        if (cancelled) return;
         setProducts(rows.map(normalizeProduct));
       })
       .catch((err) => {
+        if (cancelled) return;
         if (err.name === "AbortError") return;
-        console.error("Product fetch error:", err);
+        console.error("Men product fetch error:", err);
         setLoadError(err.message || "Failed to load products.");
       })
       .finally(() => {
+        if (cancelled) return;
         setIsLoadingProducts(false);
       });
 
-    return () => controller.abort();
-  }, [category, reloadToken]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [reloadToken]);
 
   const handleAddToCart = async (product) => {
     if (!userId) {
@@ -139,6 +177,10 @@ export default function ProductGrid({ category, userId: userIdProp }) {
   };
 
   const filteredAndSortedProducts = useMemo(() => {
+    // `products` yahan already sirf men's category ka data hai (API
+    // call khud "category=men" bhejti hai), is liye neeche sirf
+    // product `type` (shirts/jackets/etc.) pe filter lagta hai — koi
+    // women/accessories wala data is list mein aata hi nahi.
     let result = [...products];
 
     if (selectedCategory !== "All") {
@@ -193,8 +235,6 @@ export default function ProductGrid({ category, userId: userIdProp }) {
 
   return (
     <section className="relative overflow-hidden bg-[#EDE6DA]">
-      {/* Ek hi jagah — grid ke pieces jab enter hon to halka fade/rise ho,
-          aur reduced-motion pasand karne walon ke liye ye off ho jaye. */}
       <style>{`
         @keyframes aurelia-rise {
           from { opacity: 0; transform: translateY(16px); }
@@ -204,8 +244,26 @@ export default function ProductGrid({ category, userId: userIdProp }) {
           animation: aurelia-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
           animation-delay: var(--aurelia-delay, 0ms);
         }
+
+        @keyframes aurelia-shimmer-sweep {
+          0% { background-position: -300% 0; }
+          100% { background-position: 300% 0; }
+        }
+        .aurelia-shimmer {
+          background-color: rgba(209, 183, 158, 0.28);
+          background-image: linear-gradient(
+            100deg,
+            rgba(209, 183, 158, 0.28) 30%,
+            rgba(255, 255, 255, 0.65) 50%,
+            rgba(209, 183, 158, 0.28) 70%
+          );
+          background-size: 300% 100%;
+          animation: aurelia-shimmer-sweep 1.6s ease-in-out infinite;
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .aurelia-grid-item { animation: none; }
+          .aurelia-shimmer { animation: none; background-image: none; }
         }
       `}</style>
 
@@ -241,12 +299,16 @@ export default function ProductGrid({ category, userId: userIdProp }) {
 
             <div className="hidden shrink-0 items-center gap-3 md:flex">
               <span className="text-[10px] tracking-[0.16em] text-[#8A8177] uppercase">
-                Collection
+                Men's Edit
               </span>
 
-              <span className="flex h-8 min-w-8 items-center justify-center rounded-full border border-[#CFC4B5] bg-white/35 px-2 text-[10px] font-semibold text-[#432817] shadow-[inset_0_1px_2px_rgba(67,40,23,0.06)]">
-                {isLoadingProducts ? "–" : filteredAndSortedProducts.length}
-              </span>
+              {isLoadingProducts ? (
+                <ShimmerBlock className="h-8 w-8 rounded-full" />
+              ) : (
+                <span className="flex h-8 min-w-8 items-center justify-center rounded-full border border-[#CFC4B5] bg-white/35 px-2 text-[10px] font-semibold text-[#432817] shadow-[inset_0_1px_2px_rgba(67,40,23,0.06)]">
+                  {filteredAndSortedProducts.length}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -256,17 +318,19 @@ export default function ProductGrid({ category, userId: userIdProp }) {
         <div className="mx-auto max-w-[1600px] px-4 sm:px-8 lg:px-12 xl:px-16">
           <div className="flex min-h-[68px] items-center justify-between gap-4 border-b border-[#D8CFC2]/60">
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium text-[#432817]">
-                {isLoadingProducts ? "" : filteredAndSortedProducts.length}
-              </span>
+              {isLoadingProducts ? (
+                <ShimmerBlock className="h-3 w-16 rounded-full" />
+              ) : (
+                <>
+                  <span className="text-[11px] font-medium text-[#432817]">
+                    {filteredAndSortedProducts.length}
+                  </span>
 
-              <span className="text-[10px] tracking-[0.12em] text-[#8A8177] uppercase">
-                {isLoadingProducts
-                  ? "Loading"
-                  : filteredAndSortedProducts.length === 1
-                    ? "piece"
-                    : "pieces"}
-              </span>
+                  <span className="text-[10px] tracking-[0.12em] text-[#8A8177] uppercase">
+                    {filteredAndSortedProducts.length === 1 ? "piece" : "pieces"}
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -298,25 +362,16 @@ export default function ProductGrid({ category, userId: userIdProp }) {
             <div className="mb-9 flex items-end justify-between gap-6 lg:mb-12">
               <div>
                 <p className="mb-2 text-[9px] font-semibold tracking-[0.24em] text-[#8A8177] uppercase">
-                  Curated selection
+                  Curated for him
                 </p>
-                <div className="h-9 w-56 animate-pulse rounded-md bg-[#D8CFC2]/50 sm:h-10" />
+                <ShimmerBlock className="h-9 w-56 rounded-md sm:h-10" />
               </div>
               <div className="hidden h-px flex-1 bg-[#D8CFC2] sm:block" />
             </div>
 
             <div className="grid grid-cols-2 gap-x-3 gap-y-10 sm:gap-x-5 sm:gap-y-12 lg:grid-cols-3 lg:gap-x-6 lg:gap-y-16 xl:grid-cols-4 xl:gap-x-7">
               {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
-                <div key={i}>
-                  <div className="aspect-[3/4] w-full animate-pulse overflow-hidden bg-[#D1B79E]/30" />
-                  <div className="pt-4">
-                    <div className="mb-3 h-2.5 w-14 animate-pulse rounded-full bg-[#D8CFC2]/60" />
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="h-3 w-28 animate-pulse rounded-full bg-[#D8CFC2]/60" />
-                      <div className="h-3 w-10 shrink-0 animate-pulse rounded-full bg-[#D8CFC2]/60" />
-                    </div>
-                  </div>
-                </div>
+                <ProductCardSkeleton key={i} />
               ))}
             </div>
           </>
@@ -332,7 +387,7 @@ export default function ProductGrid({ category, userId: userIdProp }) {
               </p>
 
               <h3 className="font-serif text-3xl tracking-[-0.02em] text-[#432817] sm:text-4xl">
-                Couldn't load products
+                Couldn't load the men's collection
               </h3>
 
               <p className="mx-auto mt-4 max-w-sm text-xs leading-6 text-[#7E7E86]">
@@ -354,12 +409,12 @@ export default function ProductGrid({ category, userId: userIdProp }) {
             <div className="mb-9 flex items-end justify-between gap-6 lg:mb-12">
               <div>
                 <p className="mb-2 text-[9px] font-semibold tracking-[0.24em] text-[#8A8177] uppercase">
-                  Curated selection
+                  Curated for him
                 </p>
 
                 <h2 className="font-serif text-3xl leading-none tracking-[-0.02em] text-[#432817] sm:text-4xl lg:text-[2.75rem]">
                   {selectedCategory === "All"
-                    ? "The Collection"
+                    ? "Men's Collection"
                     : selectedCategory}
                 </h2>
               </div>
@@ -405,12 +460,13 @@ export default function ProductGrid({ category, userId: userIdProp }) {
               </p>
 
               <h3 className="font-serif text-3xl tracking-[-0.02em] text-[#432817] sm:text-4xl">
-                No pieces found
+                No men's pieces found
               </h3>
 
               <p className="mx-auto mt-4 max-w-sm text-xs leading-6 text-[#7E7E86]">
-                We couldn't find any products matching your
-                selected filter. Try exploring another category.
+                We couldn't find any products in the men's
+                collection matching your selected filter. Try
+                exploring another category.
               </p>
 
               <button
@@ -418,7 +474,7 @@ export default function ProductGrid({ category, userId: userIdProp }) {
                 onClick={() => setSelectedCategory("All")}
                 className="mt-8 inline-flex items-center justify-center rounded-full border border-[#432817] bg-[#432817] px-7 py-3 text-[9px] font-semibold tracking-[0.18em] text-white uppercase transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#5A3926] hover:shadow-lg"
               >
-                View all pieces
+                View all men's pieces
               </button>
             </div>
           </div>
