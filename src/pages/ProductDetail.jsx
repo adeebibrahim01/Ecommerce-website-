@@ -3,7 +3,26 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Heart, ShoppingBag, ArrowLeft, Minus, Plus, Check } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useCart } from "../hooks/useCart";
-import menProducts from "../data/men";
+
+const API_BASE =
+  import.meta.env.VITE_PRODUCT_API_URL || "https://product-worker-service.adeebibrahim01.workers.dev";
+
+// Worker ka row snake_case mein hai (sale_price, filter_category,
+// category_name, brand_name), yahan usko wohi shape de rahe hain jo
+// neeche ka JSX expect karta hai (bilkul ProductGrid.jsx jaisa normalize).
+function normalizeProduct(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    price: row.sale_price ?? row.price,
+    originalPrice: row.sale_price ? row.price : null,
+    image: row.image,
+    category: row.category_name,
+    brand: row.brand_name,
+    badge: row.badge,
+    description: row.description,
+  };
+}
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -25,24 +44,30 @@ export default function ProductDetail() {
   const [cartMessage, setCartMessage] = useState("");
   const [cartMessageTone, setCartMessageTone] = useState("neutral"); // "good" | "bad"
 
-  // Find the product by id.
+  // Database se product laana hai — /products/:id koi auth nahi maangta.
   useEffect(() => {
     if (!id) return;
+    const controller = new AbortController();
+
     setLoading(true);
-    try {
-      const foundProduct = menProducts.find((p) => String(p.id) === String(id));
-      if (foundProduct) {
-        setProduct(foundProduct);
-        setError(null);
-      } else {
-        setError("Product not found.");
-      }
-    } catch (err) {
-      console.error("Error loading product:", err);
-      setError("Failed to load product details.");
-    } finally {
-      setLoading(false);
-    }
+    setError(null);
+
+    fetch(`${API_BASE}/products/${id}`, { signal: controller.signal })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || !data?.success) {
+          throw new Error(data?.message || "Product not found.");
+        }
+        setProduct(normalizeProduct(data.product));
+      })
+      .catch((err) => {
+        if (err.name === "AbortError") return;
+        console.error("Error loading product:", err);
+        setError(err.message || "Failed to load product details.");
+      })
+      .finally(() => setLoading(false));
+
+    return () => controller.abort();
   }, [id]);
 
   // How many of this product are already in the bag — purely informational.
@@ -134,15 +159,26 @@ export default function ProductDetail() {
 
         {/* Product Details */}
         <div className="flex flex-col justify-center">
-          {product.category && (
-            <p className="mb-3 text-[10px] tracking-[0.25em] text-[#7E7E86] uppercase">{product.category}</p>
+          {(product.category || product.brand) && (
+            <p className="mb-3 text-[10px] tracking-[0.25em] text-[#7E7E86] uppercase">
+              {[product.category, product.brand].filter(Boolean).join(" · ")}
+            </p>
           )}
 
           <h1 className="font-serif text-3xl text-[#432817] sm:text-4xl">{product.name}</h1>
 
-          <p className="mt-4 text-xl font-medium text-[#432817]">
-            {typeof product.price === "number" ? `$${product.price.toLocaleString()}` : product.price}
-          </p>
+          <div className="mt-4 flex items-baseline gap-3">
+            <p className="text-xl font-medium text-[#432817]">
+              {typeof product.price === "number" ? `$${product.price.toLocaleString()}` : product.price}
+            </p>
+            {product.originalPrice && (
+              <p className="text-sm text-[#7E7E86] line-through">
+                {typeof product.originalPrice === "number"
+                  ? `$${product.originalPrice.toLocaleString()}`
+                  : product.originalPrice}
+              </p>
+            )}
+          </div>
 
           <div className="my-6 h-[1px] w-full bg-[#D1B79E]/40" />
 
@@ -206,8 +242,8 @@ export default function ProductDetail() {
               onClick={() => setLiked((prev) => !prev)}
               aria-label="Wishlist"
               className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center border transition-all ${liked
-                  ? "border-[#432817] bg-[#432817] text-[#EDE6DA]"
-                  : "border-[#D1B79E] text-[#432817] hover:border-[#432817]"
+                ? "border-[#432817] bg-[#432817] text-[#EDE6DA]"
+                : "border-[#D1B79E] text-[#432817] hover:border-[#432817]"
                 }`}
             >
               <Heart size={18} strokeWidth={1.5} fill={liked ? "currentColor" : "none"} />

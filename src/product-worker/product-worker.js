@@ -15,8 +15,6 @@ app.use('*', async (c, next) => {
 
 // ==========================================
 // ADMIN TOKEN VERIFICATION
-// admin-worker jaisa hi ADMIN_JWT_SECRET use karta hai, taake
-// admin-worker se mila token yahan bhi valid ho.
 // ==========================================
 
 function bufToBase64(buf) {
@@ -82,8 +80,6 @@ async function requireAdmin(c, next) {
             .bind(userId)
             .first();
     } catch (error) {
-        // Most common cause: this worker's DB binding points to a D1 database
-        // that does not have a `users` table (e.g. a products-only database).
         console.error('requireAdmin user lookup failed:', error);
         return c.json({ success: false, message: `Admin check failed: ${error.message}` }, 500);
     }
@@ -99,7 +95,41 @@ async function requireAdmin(c, next) {
     await next();
 }
 
+function slugify(str) {
+    return String(str)
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+}
+
 app.get('/', (c) => c.text('AURELIA Product API is running smoothly.'));
+
+// ==========================================
+// PUBLIC — CATEGORIES & BRANDS (menus/filters ke liye)
+// ==========================================
+
+app.get('/categories', async (c) => {
+    try {
+        const { results } = await c.env.DB.prepare(
+            'SELECT id, name, slug FROM categories ORDER BY name ASC'
+        ).all();
+        return c.json({ success: true, categories: results });
+    } catch (error) {
+        return c.json({ success: false, message: 'Failed to load categories.' }, 500);
+    }
+});
+
+app.get('/brands', async (c) => {
+    try {
+        const { results } = await c.env.DB.prepare(
+            'SELECT id, name, slug, logo FROM brands ORDER BY name ASC'
+        ).all();
+        return c.json({ success: true, brands: results });
+    } catch (error) {
+        return c.json({ success: false, message: 'Failed to load brands.' }, 500);
+    }
+});
 
 // ==========================================
 // PUBLIC — PRODUCT LISTING (koi auth nahi)
@@ -111,39 +141,52 @@ app.get('/products', async (c) => {
         const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '24', 10)));
         const offset = (page - 1) * limit;
 
-        const category = c.req.query('category');
+        const category = c.req.query('category');   // name ya slug — 'Men', 'women', wagera
+        const brand = c.req.query('brand');          // name ya slug
         const filterCategory = c.req.query('filterCategory');
         const type = c.req.query('type');
         const collection = c.req.query('collection');
         const search = (c.req.query('search') || '').trim();
         const sort = c.req.query('sort') || 'newest';
 
-        const conditions = ["status = 'active'"];
+        const conditions = ["p.status = 'active'"];
         const bindings = [];
 
-        if (category) { conditions.push('category = ?'); bindings.push(category); }
-        if (filterCategory) { conditions.push('filter_category = ?'); bindings.push(filterCategory); }
-        if (type) { conditions.push('type = ?'); bindings.push(type); }
-        if (search) { conditions.push('name LIKE ?'); bindings.push(`%${search}%`); }
+        if (category) { conditions.push('(cat.slug = ? OR cat.name = ?)'); bindings.push(category, category); }
+        if (brand) { conditions.push('(b.slug = ? OR b.name = ?)'); bindings.push(brand, brand); }
+        if (filterCategory) { conditions.push('p.filter_category = ?'); bindings.push(filterCategory); }
+        if (type) { conditions.push('p.type = ?'); bindings.push(type); }
+        if (search) { conditions.push('p.name LIKE ?'); bindings.push(`%${search}%`); }
 
-        if (collection === 'new-in') conditions.push('is_new_in = 1');
-        else if (collection === 'sale') conditions.push('is_on_sale = 1');
-        else if (collection === 'featured') conditions.push('featured = 1');
-        else if (collection === 'bestseller') conditions.push("badge = 'Bestseller'");
+        if (collection === 'new-in') conditions.push('p.is_new_in = 1');
+        else if (collection === 'sale') conditions.push('p.is_on_sale = 1');
+        else if (collection === 'featured') conditions.push('p.featured = 1');
+        else if (collection === 'bestseller') conditions.push("p.badge = 'Bestseller'");
 
         const where = `WHERE ${conditions.join(' AND ')}`;
 
         const orderBy =
-            sort === 'price_asc' ? 'price ASC' :
-                sort === 'price_desc' ? 'price DESC' :
-                    'created_at DESC';
+            sort === 'price_asc' ? 'p.price ASC' :
+                sort === 'price_desc' ? 'p.price DESC' :
+                    'p.created_at DESC';
+
+        const joinClause = `
+            FROM products p
+            LEFT JOIN categories cat ON cat.id = p.category_id
+            LEFT JOIN brands b ON b.id = p.brand_id
+        `;
 
         const { results } = await c.env.DB.prepare(
-            `SELECT * FROM products ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
+            `SELECT p.*, cat.name as category_name, cat.slug as category_slug,
+                    b.name as brand_name, b.slug as brand_slug
+             ${joinClause}
+             ${where}
+             ORDER BY ${orderBy}
+             LIMIT ? OFFSET ?`
         ).bind(...bindings, limit, offset).all();
 
         const totalRow = await c.env.DB.prepare(
-            `SELECT COUNT(*) as count FROM products ${where}`
+            `SELECT COUNT(*) as count ${joinClause} ${where}`
         ).bind(...bindings).first();
 
         return c.json({ success: true, products: results, total: totalRow?.count || 0, page, limit });
@@ -157,7 +200,12 @@ app.get('/products/:id', async (c) => {
     try {
         const id = c.req.param('id');
         const product = await c.env.DB.prepare(
-            `SELECT * FROM products WHERE id = ? AND status = 'active'`
+            `SELECT p.*, cat.name as category_name, cat.slug as category_slug,
+                    b.name as brand_name, b.slug as brand_slug
+             FROM products p
+             LEFT JOIN categories cat ON cat.id = p.category_id
+             LEFT JOIN brands b ON b.id = p.brand_id
+             WHERE p.id = ? AND p.status = 'active'`
         ).bind(id).first();
 
         if (!product) return c.json({ success: false, message: 'Product not found.' }, 404);
@@ -168,8 +216,153 @@ app.get('/products/:id', async (c) => {
 });
 
 // ==========================================
+// ADMIN — CATEGORIES CRUD
+// ==========================================
+
+app.get('/admin/categories', requireAdmin, async (c) => {
+    try {
+        const { results } = await c.env.DB.prepare(
+            `SELECT cat.*, (SELECT COUNT(*) FROM products WHERE category_id = cat.id) as product_count
+             FROM categories cat ORDER BY cat.name ASC`
+        ).all();
+        return c.json({ success: true, categories: results });
+    } catch (error) {
+        return c.json({ success: false, message: `Failed to load categories: ${error.message}` }, 500);
+    }
+});
+
+app.post('/admin/categories', requireAdmin, async (c) => {
+    try {
+        const { name } = await c.req.json();
+        if (!name || !name.trim()) {
+            return c.json({ success: false, message: 'Category name zaroori hai.' }, 400);
+        }
+        const result = await c.env.DB.prepare(
+            'INSERT INTO categories (name, slug) VALUES (?, ?)'
+        ).bind(name.trim(), slugify(name)).run();
+        return c.json({ success: true, message: 'Category added.', id: result.meta.last_row_id });
+    } catch (error) {
+        if (String(error.message).includes('UNIQUE')) {
+            return c.json({ success: false, message: 'Yeh category pehle se maujood hai.' }, 400);
+        }
+        return c.json({ success: false, message: `Failed to add category: ${error.message}` }, 500);
+    }
+});
+
+app.patch('/admin/categories/:id', requireAdmin, async (c) => {
+    try {
+        const id = c.req.param('id');
+        const { name } = await c.req.json();
+        if (!name || !name.trim()) {
+            return c.json({ success: false, message: 'Category name zaroori hai.' }, 400);
+        }
+        await c.env.DB.prepare(
+            'UPDATE categories SET name = ?, slug = ? WHERE id = ?'
+        ).bind(name.trim(), slugify(name), id).run();
+        return c.json({ success: true, message: 'Category updated.' });
+    } catch (error) {
+        if (String(error.message).includes('UNIQUE')) {
+            return c.json({ success: false, message: 'Yeh category naam pehle se maujood hai.' }, 400);
+        }
+        return c.json({ success: false, message: `Failed to update category: ${error.message}` }, 500);
+    }
+});
+
+app.delete('/admin/categories/:id', requireAdmin, async (c) => {
+    try {
+        const id = c.req.param('id');
+        const usage = await c.env.DB.prepare(
+            'SELECT COUNT(*) as count FROM products WHERE category_id = ?'
+        ).bind(id).first();
+        if (usage?.count > 0) {
+            return c.json({
+                success: false,
+                message: `Yeh category ${usage.count} product(s) mein use ho rahi hai. Pehle unki category badlein.`,
+            }, 400);
+        }
+        await c.env.DB.prepare('DELETE FROM categories WHERE id = ?').bind(id).run();
+        return c.json({ success: true, message: 'Category deleted.' });
+    } catch (error) {
+        return c.json({ success: false, message: `Failed to delete category: ${error.message}` }, 500);
+    }
+});
+
+// ==========================================
+// ADMIN — BRANDS CRUD
+// ==========================================
+
+app.get('/admin/brands', requireAdmin, async (c) => {
+    try {
+        const { results } = await c.env.DB.prepare(
+            `SELECT b.*, (SELECT COUNT(*) FROM products WHERE brand_id = b.id) as product_count
+             FROM brands b ORDER BY b.name ASC`
+        ).all();
+        return c.json({ success: true, brands: results });
+    } catch (error) {
+        return c.json({ success: false, message: `Failed to load brands: ${error.message}` }, 500);
+    }
+});
+
+app.post('/admin/brands', requireAdmin, async (c) => {
+    try {
+        const { name, logo } = await c.req.json();
+        if (!name || !name.trim()) {
+            return c.json({ success: false, message: 'Brand name zaroori hai.' }, 400);
+        }
+        const result = await c.env.DB.prepare(
+            'INSERT INTO brands (name, slug, logo) VALUES (?, ?, ?)'
+        ).bind(name.trim(), slugify(name), logo || null).run();
+        return c.json({ success: true, message: 'Brand added.', id: result.meta.last_row_id });
+    } catch (error) {
+        if (String(error.message).includes('UNIQUE')) {
+            return c.json({ success: false, message: 'Yeh brand pehle se maujood hai.' }, 400);
+        }
+        return c.json({ success: false, message: `Failed to add brand: ${error.message}` }, 500);
+    }
+});
+
+app.patch('/admin/brands/:id', requireAdmin, async (c) => {
+    try {
+        const id = c.req.param('id');
+        const body = await c.req.json();
+        if (!body.name || !body.name.trim()) {
+            return c.json({ success: false, message: 'Brand name zaroori hai.' }, 400);
+        }
+        await c.env.DB.prepare(
+            'UPDATE brands SET name = ?, slug = ?, logo = COALESCE(?, logo) WHERE id = ?'
+        ).bind(body.name.trim(), slugify(body.name), body.logo, id).run();
+        return c.json({ success: true, message: 'Brand updated.' });
+    } catch (error) {
+        if (String(error.message).includes('UNIQUE')) {
+            return c.json({ success: false, message: 'Yeh brand naam pehle se maujood hai.' }, 400);
+        }
+        return c.json({ success: false, message: `Failed to update brand: ${error.message}` }, 500);
+    }
+});
+
+app.delete('/admin/brands/:id', requireAdmin, async (c) => {
+    try {
+        const id = c.req.param('id');
+        const usage = await c.env.DB.prepare(
+            'SELECT COUNT(*) as count FROM products WHERE brand_id = ?'
+        ).bind(id).first();
+        if (usage?.count > 0) {
+            return c.json({
+                success: false,
+                message: `Yeh brand ${usage.count} product(s) mein use ho rahi hai. Pehle unki brand badlein.`,
+            }, 400);
+        }
+        await c.env.DB.prepare('DELETE FROM brands WHERE id = ?').bind(id).run();
+        return c.json({ success: true, message: 'Brand deleted.' });
+    } catch (error) {
+        return c.json({ success: false, message: `Failed to delete brand: ${error.message}` }, 500);
+    }
+});
+
+// ==========================================
 // ADMIN — PRODUCTS (requireAdmin ke sath guarded)
 // ==========================================
+
 app.get('/admin/products', requireAdmin, async (c) => {
     try {
         const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
@@ -177,7 +370,8 @@ app.get('/admin/products', requireAdmin, async (c) => {
         const offset = (page - 1) * limit;
 
         const search = (c.req.query('search') || '').trim();
-        const category = c.req.query('category');
+        const categoryId = c.req.query('category_id');
+        const brandId = c.req.query('brand_id');
         const filterCategory = c.req.query('filterCategory');
         const collection = c.req.query('collection');
         const status = c.req.query('status');
@@ -185,25 +379,35 @@ app.get('/admin/products', requireAdmin, async (c) => {
         const conditions = [];
         const bindings = [];
 
-        if (search) { conditions.push('name LIKE ?'); bindings.push(`%${search}%`); }
-        if (category) { conditions.push('category = ?'); bindings.push(category); }
-        if (filterCategory) { conditions.push('filter_category = ?'); bindings.push(filterCategory); }
-        if (status) { conditions.push('status = ?'); bindings.push(status); }
+        if (search) { conditions.push('p.name LIKE ?'); bindings.push(`%${search}%`); }
+        if (categoryId) { conditions.push('p.category_id = ?'); bindings.push(categoryId); }
+        if (brandId) { conditions.push('p.brand_id = ?'); bindings.push(brandId); }
+        if (filterCategory) { conditions.push('p.filter_category = ?'); bindings.push(filterCategory); }
+        if (status) { conditions.push('p.status = ?'); bindings.push(status); }
 
-        if (collection === 'new-in') conditions.push('is_new_in = 1');
-        else if (collection === 'sale') conditions.push('is_on_sale = 1');
-        else if (collection === 'featured') conditions.push('featured = 1');
-        else if (collection === 'bestseller') conditions.push("badge = 'Bestseller'");
+        if (collection === 'new-in') conditions.push('p.is_new_in = 1');
+        else if (collection === 'sale') conditions.push('p.is_on_sale = 1');
+        else if (collection === 'featured') conditions.push('p.featured = 1');
+        else if (collection === 'bestseller') conditions.push("p.badge = 'Bestseller'");
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
+        const joinClause = `
+            FROM products p
+            LEFT JOIN categories cat ON cat.id = p.category_id
+            LEFT JOIN brands b ON b.id = p.brand_id
+        `;
+
         const { results } = await c.env.DB.prepare(
-            `SELECT * FROM products ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+            `SELECT p.*, cat.name as category_name, b.name as brand_name
+             ${joinClause}
+             ${where}
+             ORDER BY p.created_at DESC LIMIT ? OFFSET ?`
         ).bind(...bindings, limit, offset).all();
 
-        const totalRow = await c.env.DB.prepare(`SELECT COUNT(*) as count FROM products ${where}`)
-            .bind(...bindings)
-            .first();
+        const totalRow = await c.env.DB.prepare(
+            `SELECT COUNT(*) as count ${joinClause} ${where}`
+        ).bind(...bindings).first();
 
         return c.json({ success: true, products: results, total: totalRow?.count || 0, page, limit });
     } catch (error) {
@@ -215,22 +419,23 @@ app.get('/admin/products', requireAdmin, async (c) => {
 app.post('/admin/products', requireAdmin, async (c) => {
     try {
         const body = await c.req.json();
-        const { name, price, image, category } = body;
+        const { name, price, image, category_id } = body;
 
-        if (!name || !price || !image || !category) {
+        if (!name || !price || !image || !category_id) {
             return c.json({ success: false, message: 'name, price, image aur category zaroori hain.' }, 400);
         }
 
         const result = await c.env.DB.prepare(
             `INSERT INTO products
-        (name, price, sale_price, image, category, filter_category, type, badge, is_new_in, is_on_sale, featured, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                (name, price, sale_price, image, category_id, brand_id, filter_category, type, badge, is_new_in, is_on_sale, featured, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
             name,
             Number(price),
             body.sale_price ? Number(body.sale_price) : null,
             image,
-            category,
+            Number(category_id),
+            body.brand_id ? Number(body.brand_id) : null,
             body.filter_category || null,
             body.type || null,
             body.badge || '',
@@ -252,7 +457,7 @@ app.patch('/admin/products/:id', requireAdmin, async (c) => {
         const id = c.req.param('id');
         const body = await c.req.json();
 
-        const fields = ['name', 'price', 'sale_price', 'image', 'category', 'filter_category', 'type', 'badge', 'is_new_in', 'is_on_sale', 'featured', 'status'];
+        const fields = ['name', 'price', 'sale_price', 'image', 'category_id', 'brand_id', 'filter_category', 'type', 'badge', 'is_new_in', 'is_on_sale', 'featured', 'status'];
         const updates = [];
         const bindings = [];
 

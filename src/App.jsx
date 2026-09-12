@@ -18,6 +18,8 @@ import VerifyEmail from "./pages/VerifyEmail";
 import AdminRoute from "./components/auth/AdminRoute";
 import AdminDashboard from "./pages/admin/Admindashboard";
 import AdminLogin from "./pages/AdminLogin";
+import BrandProducts from "./pages/BrandProducts";
+import BrandsIndex from "./pages/BrandsIndex";
 
 function MainLayout({ children }) {
   return (
@@ -37,7 +39,6 @@ function App() {
     <Routes>
       {/* ==================== MAIN WEBSITE ==================== */}
 
-      {/* Home */}
       <Route
         path="/"
         element={
@@ -49,7 +50,6 @@ function App() {
         }
       />
 
-      {/* Men */}
       <Route
         path="/men"
         element={
@@ -61,7 +61,6 @@ function App() {
         }
       />
 
-      {/* Women */}
       <Route
         path="/women"
         element={
@@ -73,7 +72,6 @@ function App() {
         }
       />
 
-      {/* Cart Page */}
       <Route
         path="/cart"
         element={
@@ -85,7 +83,6 @@ function App() {
         }
       />
 
-      {/* Product Detail */}
       <Route
         path="/product/:id"
         element={
@@ -97,7 +94,30 @@ function App() {
         }
       />
 
-      {/* Order success */}
+      {/* Brands — general listing (jab "Brands" khud click ho, slug ke bina) */}
+      <Route
+        path="/brands"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <BrandsIndex />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Brands — specific brand ke products */}
+      <Route
+        path="/brands/:slug"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <BrandProducts userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
       <Route path="/order-success" element={<OrderSuccess />} />
 
       {/* ==================== AUTH (customer) ==================== */}
@@ -107,7 +127,7 @@ function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
 
-      {/* ==================== ADMIN (bilkul alag, apna worker/token) ==================== */}
+      {/* ==================== ADMIN ==================== */}
 
       <Route path="/admin-login" element={<AdminLogin />} />
       <Route

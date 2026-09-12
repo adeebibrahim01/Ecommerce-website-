@@ -38,7 +38,7 @@ const products = [
 export default function Home() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#EDE6DA] text-[#432817]">
-   
+
 
       <main>
         <Hero />
@@ -114,8 +114,6 @@ export default function Home() {
           </div>
         </section>
       </main>
-
-      <Footer />
     </div>
   );
 }
