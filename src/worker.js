@@ -132,7 +132,7 @@ const getUserIdFromAuth = async (c) => {
 };
 
 const safeUser = (user) => ({
-  id: user.id,
+  id: user.public_id,       // UUID bahar jaata hai, internal integer id kabhi expose nahi hota
   name: user.name,
   email: user.email,
   picture: user.picture,
@@ -242,15 +242,16 @@ app.post('/auth/signup', async (c) => {
     const passwordHash = await hashPassword(password);
     const otpCode = generateOTP();
     const otpExpiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
+    const publicId = crypto.randomUUID(); // Workers mein built-in hai
 
     const result = await c.env.DB.prepare(
-      `INSERT INTO users (name, email, password, role, is_verified, status, verification_code, verification_code_expires_at)
-       VALUES (?, ?, ?, 'user', 0, 'active', ?, ?)`
+      `INSERT INTO users (name, email, password, role, is_verified, status, verification_code, verification_code_expires_at, public_id)
+   VALUES (?, ?, ?, 'user', 0, 'active', ?, ?, ?)`
     )
-      .bind(name, email, passwordHash, otpCode, otpExpiresAt)
+      .bind(name, email, passwordHash, otpCode, otpExpiresAt, publicId)
       .run();
 
-    const newUserId = result.meta.last_row_id;
+    const newUserId = result.meta.last_row_id; // internal id — sirf token ke andar jayega
     const token = await createSessionToken(newUserId, c.env.JWT_SECRET);
 
     try {
@@ -263,7 +264,7 @@ app.post('/auth/signup', async (c) => {
       success: true,
       message: 'Account created! Please check your email for the verification code.',
       token,
-      user: { id: newUserId, name, email, picture: '', role: 'user', is_verified: false },
+      user: { id: publicId, name, email, picture: '', role: 'user', is_verified: false }, // UUID bhej rahe
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -283,7 +284,7 @@ app.post('/auth/login', async (c) => {
     }
 
     const user = await c.env.DB.prepare(
-      'SELECT id, name, email, password, picture, role, is_verified, status FROM users WHERE email = ?'
+      'SELECT id, name, email, password, picture, role, is_verified, status, public_id FROM users WHERE email = ?'
     )
       .bind(email)
       .first();
@@ -397,23 +398,28 @@ app.get('/auth/google/callback', async (c) => {
     if (!c.env.DB) {
       return c.redirect(`${frontendUrl}/login?error=database_missing`);
     }
+    const publicId = crypto.randomUUID();
 
     await c.env.DB.prepare(
-      `INSERT INTO users (google_id, email, name, picture, role, is_verified, status, last_login_at)
-       VALUES (?, ?, ?, ?, 'user', 1, 'active', CURRENT_TIMESTAMP)
-       ON CONFLICT(email) DO UPDATE SET
-         google_id = excluded.google_id,
-         name = excluded.name,
-         picture = excluded.picture,
-         is_verified = 1,
-         last_login_at = CURRENT_TIMESTAMP`
+      `INSERT INTO users (google_id, email, name, picture, role, is_verified, status, last_login_at, public_id)
+   VALUES (?, ?, ?, ?, 'user', 1, 'active', CURRENT_TIMESTAMP, ?)
+   ON CONFLICT(email) DO UPDATE SET
+     google_id = excluded.google_id,
+     name = excluded.name,
+     picture = excluded.picture,
+     is_verified = 1,
+     last_login_at = CURRENT_TIMESTAMP`
+      // Note: public_id ON CONFLICT mein update NAHI kiya — existing user ka
+      // public_id waisa hi rahega jo pehle se tha (agar tha), naye row ke
+      // liye excluded.public_id use ho jayega apne aap.
     )
-      .bind(googleUser.id, googleUser.email, googleUser.name || '', googleUser.picture || '')
+      .bind(googleUser.id, googleUser.email, googleUser.name || '', googleUser.picture || '', publicId)
       .run();
 
     const dbUser = await c.env.DB.prepare('SELECT id, status FROM users WHERE email = ?')
       .bind(googleUser.email)
       .first();
+    // yahan koi change nahi — dbUser.id internal hi rehta hai, token ke liye
 
     if (dbUser.status !== 'active') {
       return c.redirect(`${frontendUrl}/login?error=account_not_active`);
@@ -444,7 +450,7 @@ app.get('/auth/me', async (c) => {
     }
 
     const user = await c.env.DB.prepare(
-      'SELECT id, google_id, email, name, picture, role, is_verified, status FROM users WHERE id = ?'
+      'SELECT id, google_id, email, name, picture, role, is_verified, status, public_id FROM users WHERE id = ?'
     )
       .bind(userId)
       .first();

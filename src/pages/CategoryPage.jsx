@@ -8,23 +8,25 @@ import ProductSort from "../components/shop/ProductSort";
 import { useCart } from "../hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
 
-// Ek hi page — Men aur Women (aur kal ko koi bhi nayi category) sab isi
-// se chalte hain. `App.jsx` mein wire kiya jata hai:
+// Ek hi page — Men, Women, New In, Sale, Collections (aur kal ko koi bhi
+// nayi category/collection) sab isi se chalte hain. `App.jsx` mein wire
+// kiya jata hai:
 //
 //   <Route path="/men" element={<CategoryPage category="men" />} />
 //   <Route path="/women" element={<CategoryPage category="women" />} />
+//   <Route path="/new-in" element={<CategoryPage collection="new-in" />} />
+//   <Route path="/sale" element={<CategoryPage collection="sale" />} />
+//   <Route path="/collections" element={<CategoryPage />} />
 //
-// URLs bilkul pehle jaisi hi rehti hain (/men, /women) — koi link
-// (Navbar, Categories component) tootne ka khatra nahi. `category` prop
-// se aata hai, is liye ye component khud kabhi confuse nahi ho sakta ke
-// kaunsi category dikhani hai. Agar future mein kabhi dynamic route
-// (`/shop/:categorySlug`) chahiye ho, to neeche `useParams` fallback
-// khud-ba-khud kaam kar dega — koi is file mein change nahi karna
-// padega.
+// `category` aur `collection` do alag filters hain (backend `/products`
+// dono ko independently support karta hai). `category` slug se aata hai
+// (men/women), `collection` backend ke is_new_in / is_on_sale / featured
+// flags pe filter karta hai. Koi bhi prop na diya jaye (jaise /collections)
+// to bilkul bina filter ke sab active products aa jate hain.
 const API_BASE =
     import.meta.env.VITE_PRODUCT_API_URL || "https://product-worker-service.adeebibrahim01.workers.dev";
 
-async function fetchAllProductsByCategory(categorySlug, signal) {
+async function fetchAllProducts({ categorySlug, collectionSlug }, signal) {
     const all = [];
     let page = 1;
     const limit = 50;
@@ -35,6 +37,7 @@ async function fetchAllProductsByCategory(categorySlug, signal) {
             limit: String(limit),
         });
         if (categorySlug) params.set("category", categorySlug);
+        if (collectionSlug) params.set("collection", collectionSlug);
 
         const res = await fetch(`${API_BASE}/products?${params.toString()}`, {
             signal,
@@ -97,16 +100,38 @@ const KNOWN_CATEGORY_COPY = {
     women: { label: "Women's", curated: "Curated for her" },
 };
 
-function getCategoryCopy(categorySlug) {
-    const known = KNOWN_CATEGORY_COPY[categorySlug?.toLowerCase()];
-    if (known) return known;
+// New In / Sale ke liye khaas copy. Koi bhi collection ho jo yahan
+// list nahi, generic fallback niche handle kar deta hai.
+const KNOWN_COLLECTION_COPY = {
+    "new-in": { label: "New In", curated: "Fresh off the rack" },
+    sale: { label: "Sale", curated: "Limited-time offers" },
+    featured: { label: "Featured", curated: "Editor's picks" },
+    bestseller: { label: "Bestsellers", curated: "Customer favorites" },
+};
 
-    const label = categorySlug
-        ? categorySlug.charAt(0).toUpperCase() +
-        categorySlug.slice(1).replace(/[-_]/g, " ")
-        : "All";
+// category prop > collection prop > "sab kuch" (Collections page).
+function getPageCopy(categorySlug, collectionSlug) {
+    if (categorySlug) {
+        const known = KNOWN_CATEGORY_COPY[categorySlug.toLowerCase()];
+        if (known) return known;
 
-    return { label, curated: "Curated selection" };
+        const label =
+            categorySlug.charAt(0).toUpperCase() +
+            categorySlug.slice(1).replace(/[-_]/g, " ");
+        return { label, curated: "Curated selection" };
+    }
+
+    if (collectionSlug) {
+        const known = KNOWN_COLLECTION_COPY[collectionSlug.toLowerCase()];
+        if (known) return known;
+
+        const label =
+            collectionSlug.charAt(0).toUpperCase() +
+            collectionSlug.slice(1).replace(/[-_]/g, " ");
+        return { label, curated: "Curated selection" };
+    }
+
+    return { label: "All", curated: "The full edit" };
 }
 
 const SKELETON_COUNT = 8;
@@ -130,14 +155,22 @@ function ProductCardSkeleton() {
     );
 }
 
-export default function CategoryPage({ category: categoryProp, userId: userIdProp }) {
-    // Pehle explicit `category` prop check karo (App.jsx se aata hai —
-    // yehi normal case hai), warna route param se le lo (agar kabhi
-    // dynamic route se use ho).
+export default function CategoryPage({
+    category: categoryProp,
+    collection: collectionProp,
+    userId: userIdProp,
+}) {
+    // Pehle explicit `category`/`collection` prop check karo (App.jsx se
+    // aata hai — yehi normal case hai), warna route param se le lo (agar
+    // kabhi dynamic route se use ho).
     const { categorySlug: paramSlug } = useParams();
-    const categorySlug = categoryProp || paramSlug;
+    const categorySlug = categoryProp || (collectionProp ? null : paramSlug);
+    const collectionSlug = collectionProp || null;
 
-    const copy = useMemo(() => getCategoryCopy(categorySlug), [categorySlug]);
+    const copy = useMemo(
+        () => getPageCopy(categorySlug, collectionSlug),
+        [categorySlug, collectionSlug]
+    );
 
     const [selectedCategory, setSelectedCategory] = useState("All");
     const [sortBy, setSortBy] = useState("featured");
@@ -152,11 +185,7 @@ export default function CategoryPage({ category: categoryProp, userId: userIdPro
 
     const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
 
-    // FIX (race condition): `cancelled` flag — `abort()` sirf fetch ki
-    // promise reject karta hai, `.finally` ko nahi rokta. Is liye stale
-    // (abort ho chuki) request ka result kabhi bhi latest UI state ko
-    // overwrite nahi karna chahiye (jaise Men se Women switch karte waqt
-    // ek pal ke liye galat data ya "No pieces found" flash hona).
+
     useEffect(() => {
         const controller = new AbortController();
         let cancelled = false;
@@ -164,7 +193,7 @@ export default function CategoryPage({ category: categoryProp, userId: userIdPro
         setIsLoadingProducts(true);
         setLoadError("");
 
-        fetchAllProductsByCategory(categorySlug, controller.signal)
+        fetchAllProducts({ categorySlug, collectionSlug }, controller.signal)
             .then((rows) => {
                 if (cancelled) return;
                 setProducts(rows.map(normalizeProduct));
@@ -184,13 +213,13 @@ export default function CategoryPage({ category: categoryProp, userId: userIdPro
             cancelled = true;
             controller.abort();
         };
-    }, [categorySlug, reloadToken]);
+    }, [categorySlug, collectionSlug, reloadToken]);
 
-    // Men se Women (ya kisi bhi dusri category) pe jaate hi purani
-    // category ka "type" filter reset ho jaye.
+    // Men se Women (ya kisi bhi dusri category/collection) pe jaate hi
+    // purani category ka "type" filter reset ho jaye.
     useEffect(() => {
         setSelectedCategory("All");
-    }, [categorySlug]);
+    }, [categorySlug, collectionSlug]);
 
     const handleAddToCart = async (product) => {
         if (!userId) {

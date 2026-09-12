@@ -1,10 +1,8 @@
-import {
-  Search,
-  Heart,
-} from "lucide-react";
+import { Search } from "lucide-react";
 
 import UserMenu from "./UserMenu";
 import CartPreview from "./CartPreview";
+import WishlistPreview from "../shop/WishlistPreview";
 
 export default function NavbarActions({
   user,
@@ -14,48 +12,46 @@ export default function NavbarActions({
   setUserMenu,
   cartCount,
   cartItems,
-  onRemoveItem, // onDelete/remove function receive kiya
+  onRemoveItem,
   onNavigate,
   logout,
+  wishlistCount,
+  wishlistItems,
+  onRemoveWishlistItem,
+  onAddWishlistItemToCart,
+  wishlistAddingMap,
 }) {
   return (
-    <div className="hidden items-center gap-3 sm:flex">
+    <div className="hidden items-center gap-1 rounded-full border border-[#D1B79E]/50 bg-white/30 py-1 pr-1 pl-2 sm:flex">
       {/* Search */}
       <button
         type="button"
         aria-label="Search"
-        className="flex h-9 w-9 items-center justify-center rounded-full text-[#432817] transition-all duration-300 hover:bg-white/45 hover:text-[#977150]"
+        className="flex h-9 w-9 items-center justify-center rounded-full text-[#432817] transition-all duration-300 hover:bg-white/60 hover:text-[#977150]"
       >
-        <Search
-          size={17}
-          strokeWidth={1.35}
-        />
+        <Search size={17} strokeWidth={1.35} />
       </button>
 
-      {/* Wishlist */}
-      <button
-        type="button"
-        aria-label="Wishlist"
-        className="flex h-9 w-9 items-center justify-center rounded-full text-[#432817] transition-all duration-300 hover:bg-white/45 hover:text-[#977150]"
-      >
-        <Heart
-          size={17}
-          strokeWidth={1.35}
-        />
-      </button>
+      {/* Wishlist — ab CartPreview jaisa hover dropdown */}
+      <WishlistPreview
+        wishlistCount={wishlistCount}
+        wishlistItems={wishlistItems}
+        onNavigate={onNavigate}
+        onRemoveItem={onRemoveWishlistItem}
+        onAddToCart={onAddWishlistItemToCart}
+        isAdding={wishlistAddingMap}
+      />
 
       {/* Shopping Bag */}
       <CartPreview
         cartCount={cartCount}
         cartItems={cartItems}
-        onRemoveItem={onRemoveItem} // Yahan CartPreview ko pass kar diya gaya hai
+        onRemoveItem={onRemoveItem}
         onNavigate={onNavigate}
       />
 
-      {/* Divider */}
-      <div className="mx-2 h-8 w-px bg-[#D1B79E]" />
+      <div className="mx-1 h-6 w-px bg-[#D1B79E]" />
 
-      {/* User */}
       <UserMenu
         user={user}
         userName={userName}

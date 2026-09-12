@@ -88,15 +88,14 @@ export default function UserMenu({
         {/* Dropdown Arrow */}
         <ChevronDown
           size={12}
-          className={`ml-0.5 text-[#977150] transition-transform duration-300 ${
-            userMenu ? "rotate-180" : ""
-          }`}
+          className={`ml-0.5 text-[#977150] transition-transform duration-300 ${userMenu ? "rotate-180" : ""
+            }`}
         />
       </button>
 
-      {/* User Dropdown Menu */}
+      {/* User Dropdown Menu — background aligned to the navbar's new #F5F2EC */}
       {userMenu && (
-        <div className="absolute top-[calc(100%+12px)] right-0 z-50 w-56 overflow-hidden rounded-2xl border border-[#D1B79E]/70 bg-[#F4EEE5]/95 p-2 shadow-[0_18px_50px_rgba(67,40,23,0.12)] backdrop-blur-xl">
+        <div className="absolute top-[calc(100%+12px)] right-0 z-50 w-56 overflow-hidden rounded-2xl border border-[#D1B79E]/70 bg-[#F5F2EC]/95 p-2 shadow-[0_18px_50px_rgba(67,40,23,0.12)] backdrop-blur-xl">
           <div className="border-b border-[#D1B79E]/50 px-3 py-3">
             <p className="truncate text-[10px] font-semibold tracking-[0.08em] text-[#432817]">
               {displayName}

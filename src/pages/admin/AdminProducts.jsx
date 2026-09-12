@@ -49,6 +49,30 @@ const CLOUDINARY_FOLDERS = {
     brand: "Home/Brands",
 };
 
+// Badge (dropdown) aur is_new_in/is_on_sale (checkboxes) do alag fields
+// hain — koi enforce nahi karta ke wo aapas mein match karein. Backend
+// bhi badge ko 'bestseller' collection filter ke liye use karta hai, is
+// liye ise auto-set nahi kar sakte. Ye sirf ek non-blocking hint hai jo
+// admin ko mismatch ki taraf ishara karta hai — form submit hone se
+// nahi rokta.
+function getBadgeMismatchWarning(form) {
+    const badge = form.badge || "";
+
+    if (badge === "New" && !form.is_new_in) {
+        return `Badge is "New" but "New In" isn't checked — product won't show on the New In page.`;
+    }
+    if (badge === "Sale" && !form.is_on_sale) {
+        return `Badge is "Sale" but "On sale" isn't checked — product won't show on the Sale page.`;
+    }
+    if (form.is_on_sale && badge !== "Sale" && badge !== "Bestseller") {
+        return `"On sale" is checked but the badge isn't "Sale" — consider setting the badge to match.`;
+    }
+    if (form.is_new_in && badge !== "New" && badge !== "Bestseller") {
+        return `"New In" is checked but the badge isn't "New" — consider setting the badge to match.`;
+    }
+    return null;
+}
+
 const FILTER_CATEGORIES = ["Tops", "Bottoms", "Outerwear", "Shoes", "Clothing", "Accessories"];
 const BADGES = ["", "New", "Bestseller", "Sale"];
 const STATUSES = ["active", "draft", "archived"];
@@ -394,8 +418,8 @@ function TaxonomyPopover({ kind, onClose, onChanged, push }) {
                         <div className="flex items-center gap-3">
                             <label
                                 className={`flex cursor-pointer items-center gap-2 border border-dashed px-3 py-2 text-[10px] transition-colors ${isDraggingLogo
-                                        ? "border-[#432817] bg-[#432817]/5 text-[#432817]"
-                                        : "border-[#D1B79E] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]"
+                                    ? "border-[#432817] bg-[#432817]/5 text-[#432817]"
+                                    : "border-[#D1B79E] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]"
                                     }`}
                                 onDragOver={(e) => { e.preventDefault(); if (!uploadingNew) setIsDraggingLogo(true); }}
                                 onDragLeave={() => setIsDraggingLogo(false)}
@@ -588,6 +612,7 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
     };
 
     const descriptionLength = (form.description || "").length;
+    const badgeWarning = getBadgeMismatchWarning(form);
 
     return (
         <div
@@ -677,8 +702,8 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                         </label>
                         <label
                             className={`flex cursor-pointer items-center gap-2 border border-dashed px-4 py-3 text-xs transition-colors ${isDraggingImage
-                                    ? "border-[#432817] bg-[#432817]/5 text-[#432817]"
-                                    : "border-[#D1B79E] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]"
+                                ? "border-[#432817] bg-[#432817]/5 text-[#432817]"
+                                : "border-[#D1B79E] text-[#7E7E86] hover:border-[#432817] hover:text-[#432817]"
                                 }`}
                             onDragOver={(e) => { e.preventDefault(); if (!uploading) setIsDraggingImage(true); }}
                             onDragLeave={() => setIsDraggingImage(false)}
@@ -801,6 +826,12 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             Featured
                         </label>
                     </div>
+
+                    {badgeWarning && (
+                        <p className="border-l-2 border-[#C99A3E] bg-[#C99A3E]/10 px-3 py-2 text-[11px] leading-snug text-[#7a5a1a]">
+                            ⚠ {badgeWarning}
+                        </p>
+                    )}
 
                     {error && <p className="text-xs text-[#9B4635]">{error}</p>}
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useCart } from "../../hooks/useCart";
+import { useWishlist } from "../../hooks/useWishlist";
 
 import NavbarNav from "./NavbarNav";
 import NavbarActions from "./NavbarActions";
@@ -14,16 +15,26 @@ export default function Navbar() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  // Robust & Safe User ID resolution (agar user load nahi hua tou null return karega)
   const activeUserId = user ? (user.id || user._id || user.sub || user.email) : null;
 
-  // TanStack Query powered useCart hook
-  const { cartCount, cartItems, removeFromCart } = useCart(activeUserId);
+  const { cartCount, cartItems, addToCart, removeFromCart } = useCart(activeUserId);
+  const { wishlistCount, wishlistItems, removeFromWishlist } = useWishlist(activeUserId);
 
   const handleNavigation = (path) => {
     navigate(path);
     setMobileMenu(false);
     setUserMenu(false);
+  };
+
+  // Wishlist dropdown ke "Add to Cart" button ke liye —
+  // cart mein daalo aur wishlist se turant hata do
+  const handleAddWishlistItemToCart = async (item) => {
+    await addToCart(item.id, 1, {
+      name: item.name,
+      price: item.sale_price ?? item.price,
+      image: item.image,
+    });
+    await removeFromWishlist(item.id);
   };
 
   const userName =
@@ -39,13 +50,8 @@ export default function Navbar() {
     "";
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[#D1B79E]/50 bg-[#EDE6DA]/95 shadow-[0_4px_30px_rgba(67,40,23,0.04)] backdrop-blur-xl">
-      {/* ================================
-          DESKTOP / MAIN HEADER
-      ================================= */}
-
+    <header className="sticky top-0 z-50 border-b border-[#D1B79E]/50 bg-[#F5F2EC]/90 shadow-[0_4px_30px_rgba(67,40,23,0.05)] backdrop-blur-xl">
       <div className="mx-auto flex h-[76px] max-w-[1600px] items-center justify-between px-5 sm:px-8 lg:px-12 xl:px-16">
-        {/* Logo */}
         <button
           type="button"
           onClick={() => handleNavigation("/")}
@@ -55,17 +61,14 @@ export default function Navbar() {
             <span className="font-serif text-[22px] tracking-[0.16em] text-[#432817] transition-transform duration-300 group-hover:tracking-[0.2em]">
               AURELIA
             </span>
-
             <span className="mt-0.5 text-[6px] font-semibold tracking-[0.42em] text-[#977150] uppercase">
               Modern Essentials
             </span>
           </div>
         </button>
 
-        {/* Desktop Navigation */}
         <NavbarNav onNavigate={handleNavigation} />
 
-        {/* Desktop Actions */}
         <NavbarActions
           user={user}
           userName={userName}
@@ -77,9 +80,12 @@ export default function Navbar() {
           onRemoveItem={removeFromCart}
           onNavigate={handleNavigation}
           logout={logout}
+          wishlistCount={wishlistCount}
+          wishlistItems={wishlistItems}
+          onRemoveWishlistItem={removeFromWishlist}
+          onAddWishlistItemToCart={handleAddWishlistItemToCart}
         />
 
-        {/* Mobile actions */}
         <MobileMenu
           user={user}
           userName={userName}
@@ -89,6 +95,7 @@ export default function Navbar() {
           userMenu={userMenu}
           setUserMenu={setUserMenu}
           cartCount={cartCount}
+          wishlistCount={wishlistCount}
           onNavigate={handleNavigation}
           logout={logout}
         />

@@ -4,10 +4,9 @@ import {
   X,
   UserRound,
   LogOut,
+  Heart,
 } from "lucide-react";
-
 import { navItems } from "./NavbarNav";
-
 export default function MobileMenu({
   user,
   userName,
@@ -17,27 +16,36 @@ export default function MobileMenu({
   userMenu,
   setUserMenu,
   cartCount,
+  wishlistCount, // NAYA
   onNavigate,
   logout,
 }) {
   return (
     <>
-      {/* Mobile actions */}
-
       <div className="flex items-center gap-2 sm:hidden">
-        {/* Bag */}
+        {/* Wishlist */}
+        <button
+          type="button"
+          aria-label="Wishlist"
+          onClick={() => onNavigate("/wishlist")}
+          className="relative flex h-9 w-9 items-center justify-center rounded-full text-[#432817]"
+        >
+          <Heart size={18} strokeWidth={1.35} />
+          {wishlistCount > 0 && (
+            <span className="absolute top-0 right-0 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[#432817] px-1 text-[7px] text-white">
+              {wishlistCount}
+            </span>
+          )}
+        </button>
 
+        {/* Bag */}
         <button
           type="button"
           aria-label="Shopping bag"
           onClick={() => onNavigate("/cart")}
           className="relative flex h-9 w-9 items-center justify-center rounded-full text-[#432817]"
         >
-          <ShoppingBag
-            size={18}
-            strokeWidth={1.35}
-          />
-
+          <ShoppingBag size={18} strokeWidth={1.35} />
           <span className="absolute top-0 right-0 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[#432817] px-1 text-[7px] text-white">
             {cartCount}
           </span>
@@ -105,11 +113,10 @@ export default function MobileMenu({
       ================================= */}
 
       <div
-        className={`absolute top-[76px] right-0 left-0 grid transition-[grid-template-rows] duration-300 sm:hidden ${
-          mobileMenu
-            ? "grid-rows-[1fr] border-t border-[#D1B79E]/50"
-            : "grid-rows-[0fr]"
-        }`}
+        className={`absolute top-[76px] right-0 left-0 grid transition-[grid-template-rows] duration-300 sm:hidden ${mobileMenu
+          ? "grid-rows-[1fr] border-t border-[#D1B79E]/50"
+          : "grid-rows-[0fr]"
+          }`}
       >
         <div className="overflow-hidden">
           <div className="bg-[#EDE6DA] px-5 py-7">

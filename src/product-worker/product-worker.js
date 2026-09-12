@@ -122,8 +122,12 @@ app.get('/categories', async (c) => {
 
 app.get('/brands', async (c) => {
     try {
+        // product_count add kiya — sirf 'active' products count hote hain,
+        // taake frontend dropdown mein har brand ke saamne count dikha sake.
         const { results } = await c.env.DB.prepare(
-            'SELECT id, name, slug, logo FROM brands ORDER BY name ASC'
+            `SELECT b.id, b.name, b.slug, b.logo,
+                    (SELECT COUNT(*) FROM products WHERE brand_id = b.id AND status = 'active') as product_count
+             FROM brands b ORDER BY b.name ASC`
         ).all();
         return c.json({ success: true, brands: results });
     } catch (error) {
@@ -495,6 +499,67 @@ app.delete('/admin/products/:id', requireAdmin, async (c) => {
     } catch (error) {
         console.error('Admin product delete error:', error);
         return c.json({ success: false, message: `Failed to delete product: ${error.message}` }, 500);
+    }
+});
+
+// ==========================================
+// WISHLIST
+// ==========================================
+
+app.get('/wishlist', async (c) => {
+    const userId = c.req.query('user_id');
+    if (!userId) return c.json({ success: false, message: 'user_id zaroori hai.' }, 400);
+
+    try {
+        const { results } = await c.env.DB.prepare(
+            `SELECT w.id as wishlist_id, w.created_at as added_at,
+                    p.*, cat.name as category_name, b.name as brand_name
+             FROM wishlist_items w
+             JOIN products p ON p.id = w.product_id
+             LEFT JOIN categories cat ON cat.id = p.category_id
+             LEFT JOIN brands b ON b.id = p.brand_id
+             WHERE w.user_id = ?
+             ORDER BY w.created_at DESC`
+        ).bind(userId).all();
+
+        return c.json({ success: true, wishlist: results });
+    } catch (error) {
+        return c.json({ success: false, message: `Failed to load wishlist: ${error.message}` }, 500);
+    }
+});
+
+app.post('/wishlist', async (c) => {
+    try {
+        const { user_id, product_id } = await c.req.json();
+        if (!user_id || !product_id) {
+            return c.json({ success: false, message: 'user_id aur product_id zaroori hain.' }, 400);
+        }
+
+
+        await c.env.DB.prepare(
+            `INSERT INTO wishlist_items (user_id, product_id) VALUES (?, ?)
+             ON CONFLICT(user_id, product_id) DO NOTHING`
+        ).bind(user_id, product_id).run();
+
+        return c.json({ success: true, message: 'Product wishlist mein add ho gaya.' });
+    } catch (error) {
+        return c.json({ success: false, message: `Failed to add to wishlist: ${error.message}` }, 500);
+    }
+});
+
+app.delete('/wishlist/:productId', async (c) => {
+    try {
+        const productId = c.req.param('productId');
+        const userId = c.req.query('user_id');
+        if (!userId) return c.json({ success: false, message: 'user_id zaroori hai.' }, 400);
+
+        await c.env.DB.prepare(
+            `DELETE FROM wishlist_items WHERE user_id = ? AND product_id = ?`
+        ).bind(userId, productId).run();
+
+        return c.json({ success: true, message: 'Product wishlist se remove ho gaya.' });
+    } catch (error) {
+        return c.json({ success: false, message: `Failed to remove from wishlist: ${error.message}` }, 500);
     }
 });
 

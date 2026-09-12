@@ -19,7 +19,7 @@ import AdminDashboard from "./pages/admin/Admindashboard";
 import AdminLogin from "./pages/AdminLogin";
 import BrandProducts from "./pages/BrandProducts";
 import BrandsIndex from "./pages/BrandsIndex";
-
+import WishlistPage from "./pages/WishlistPage";
 function MainLayout({ children }) {
   return (
     <>
@@ -81,6 +81,31 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* New In — backend collection=new-in filter (p.is_new_in = 1) */}
+      <Route
+        path="/new-in"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CategoryPage collection="new-in" userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Sale — backend collection=sale filter (p.is_on_sale = 1) */}
+      <Route
+        path="/sale"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CategoryPage collection="sale" userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/cart"
         element={
@@ -144,6 +169,16 @@ function App() {
           <AdminRoute>
             <AdminDashboard />
           </AdminRoute>
+        }
+      />
+      <Route
+        path="/wishlist"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <WishlistPage userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
         }
       />
 

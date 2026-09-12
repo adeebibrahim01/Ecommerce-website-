@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
+import { useWishlist } from "../../hooks/useWishlist";
 
 export default function ProductCard({
   id,
@@ -19,16 +20,12 @@ export default function ProductCard({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [liked, setLiked] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [cartMessage, setCartMessage] = useState("");
 
   const activeUserId = user?.id || user?._id || user?.sub || user?.email;
   const queryKey = ["cart", activeUserId];
 
-  // Sirf READ - cache check karne ke liye (isko save/write nahi karna, warna
-  // double-write ka masla wapis aa jayega). Actual add/update sirf parent ke
-  // useCart hook se hoga (single source of truth).
   const cartData = queryClient.getQueryData(queryKey) || { items: [] };
   const cachedItems = cartData.items || [];
 
@@ -37,6 +34,11 @@ export default function ProductCard({
   );
 
   const isAddedLocal = isCachedInCart || isInCart;
+
+  const { isInWishlist, toggleWishlist, removeFromWishlist, isMutating: isWishlistMutating } =
+    useWishlist(activeUserId);
+
+  const liked = isInWishlist(id);
 
   const formattedPrice =
     typeof price === "number" ? `$${price.toLocaleString()}` : price;
@@ -63,17 +65,29 @@ export default function ProductCard({
     setCartMessage("");
 
     try {
-      // Ye single call hi cart add/update handle karega
-      // (useCart hook -> API -> query cache invalidate/update).
-      // Yahan koi alag fetch, localStorage ya queryClient.setQueryData
-      // nahi karna - warna item DOUBLE save ho jayega.
       await onAddToCart(id);
+      // Cart mein add hone ke baad, agar yeh wishlist mein tha to nikal do
+      if (liked) {
+        await removeFromWishlist(id);
+      }
     } catch (error) {
       console.error("Quick add error:", error);
       setCartMessage(error?.message || "Something went wrong.");
     } finally {
       setIsAdding(false);
     }
+  };
+
+  const handleToggleWishlist = async (e) => {
+    e.stopPropagation();
+    if (isWishlistMutating) return;
+
+    if (!activeUserId) {
+      navigate("/login");
+      return;
+    }
+
+    await toggleWishlist(id, { name, price, image });
   };
 
   return (
@@ -107,14 +121,12 @@ export default function ProductCard({
 
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setLiked((prev) => !prev);
-          }}
+          onClick={handleToggleWishlist}
+          disabled={isWishlistMutating}
           aria-label={liked ? `Remove ${name} from wishlist` : `Add ${name} to wishlist`}
-          className={`absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-sm transition-all ${liked
-              ? "bg-[#432817] text-[#EDE6DA]"
-              : "bg-[#EDE6DA]/90 text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
+          className={`absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-sm transition-all disabled:opacity-60 ${liked
+            ? "bg-[#432817] text-[#EDE6DA]"
+            : "bg-[#EDE6DA]/90 text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
             }`}
         >
           <Heart
@@ -130,9 +142,9 @@ export default function ProductCard({
           onClick={handleQuickAdd}
           disabled={isAdding || isAddedLocal || isCartLoading}
           aria-label={isAddedLocal ? `${name} is in cart` : `Add ${name} to cart`}
-          className={`absolute bottom-3 left-3 right-3 flex translate-y-3 items-center justify-center gap-2 py-3 text-[9px] font-medium tracking-[0.2em] uppercase transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 ${isAddedLocal
-              ? "opacity-100 cursor-not-allowed bg-[#6F7663] text-[#F7F3EC]"
-              : "bg-[#EDE6DA] text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
+          className={`absolute bottom-3 left-3 right-3 flex items-center justify-center gap-2 py-3 text-[9px] font-medium tracking-[0.2em] uppercase transition-all duration-300 ${isAddedLocal
+            ? "translate-y-0 opacity-100 cursor-not-allowed bg-[#6F7663] text-[#F7F3EC]"
+            : "translate-y-3 opacity-0 pointer-events-none group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto bg-[#EDE6DA] text-[#432817] hover:bg-[#432817] hover:text-[#EDE6DA]"
             }`}
         >
           <ShoppingBag size={13} strokeWidth={1.4} />
@@ -140,7 +152,7 @@ export default function ProductCard({
             {isAdding
               ? "Adding..."
               : isAddedLocal
-                ? "Added to cart"
+                ? "Added to Cart ✓"
                 : cartMessage || "Quick add"}
           </span>
         </button>
