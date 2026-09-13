@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ShoppingBag,
   Menu,
@@ -7,6 +8,7 @@ import {
   Heart,
 } from "lucide-react";
 import { navItems } from "./NavbarNav";
+import NavbarSearch from "./NavbarSearch";
 export default function MobileMenu({
   user,
   userName,
@@ -16,96 +18,123 @@ export default function MobileMenu({
   userMenu,
   setUserMenu,
   cartCount,
-  wishlistCount, // NAYA
+  wishlistCount = 0, // default kiya — abhi Navbar.jsx ye prop pass nahi karta (neeche note dekhein)
   onNavigate,
   logout,
 }) {
+  // BUG FIX: avatar image load fail hone par pehle sirf `display:none` laga
+  // diya jata tha — peeche koi fallback icon nahi tha, bas khaali circle reh
+  // jata tha. Ab UserMenu.jsx wala hi pattern: error state track karo, fail
+  // hone par fallback UserRound icon dikhao.
+  const [avatarError, setAvatarError] = useState(false);
+  const showAvatarImage = Boolean(userImage) && !avatarError;
+
+  // BUG FIX (main issue): mobile bar mein search ka koi entry point hi
+  // nahi tha — NavbarSearch sirf desktop NavbarActions ke andar (sm:flex)
+  // render hota tha. Ab yahan bhi add kiya. Jab search khulti hai (pill
+  // expand hoti hai), baaki icons temporarily chhupa dete hain taake
+  // expand hone ke liye jagah mile aur row overflow na ho.
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
   return (
     <>
       <div className="flex items-center gap-2 sm:hidden">
-        {/* Wishlist */}
-        <button
-          type="button"
-          aria-label="Wishlist"
-          onClick={() => onNavigate("/wishlist")}
-          className="relative flex h-9 w-9 items-center justify-center rounded-full text-[#432817]"
-        >
-          <Heart size={18} strokeWidth={1.35} />
-          {wishlistCount > 0 && (
-            <span className="absolute top-0 right-0 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[#432817] px-1 text-[7px] text-white">
-              {wishlistCount}
-            </span>
-          )}
-        </button>
+        {/* Search — jab expand ho to baaki icons hide ho jate hain */}
+        <NavbarSearch onNavigate={onNavigate} onOpenChange={setMobileSearchOpen} />
 
-        {/* Bag */}
-        <button
-          type="button"
-          aria-label="Shopping bag"
-          onClick={() => onNavigate("/cart")}
-          className="relative flex h-9 w-9 items-center justify-center rounded-full text-[#432817]"
-        >
-          <ShoppingBag size={18} strokeWidth={1.35} />
-          <span className="absolute top-0 right-0 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[#432817] px-1 text-[7px] text-white">
-            {cartCount}
-          </span>
-        </button>
+        {!mobileSearchOpen && (
+          <>
+            {/* Wishlist */}
+            <button
+              type="button"
+              aria-label="Wishlist"
+              onClick={() => onNavigate("/wishlist")}
+              className="relative flex h-9 w-9 items-center justify-center rounded-full text-[#432817] transition-colors hover:bg-white/40"
+            >
+              <Heart size={18} strokeWidth={1.35} />
+              {wishlistCount > 0 && (
+                <span className="absolute top-0 right-0 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[#432817] px-1 text-[7px] text-white">
+                  {wishlistCount}
+                </span>
+              )}
+            </button>
 
-        {/* User avatar */}
+            {/* Bag */}
+            <button
+              type="button"
+              aria-label="Shopping bag"
+              onClick={() => onNavigate("/cart")}
+              className="relative flex h-9 w-9 items-center justify-center rounded-full text-[#432817] transition-colors hover:bg-white/40"
+            >
+              <ShoppingBag size={18} strokeWidth={1.35} />
+              {/* BUG FIX: this badge used to render unconditionally, showing "0"
+              when the cart was empty — inconsistent with the wishlist badge
+              right next to it, which already hides at 0. Now matches. */}
+              {cartCount > 0 && (
+                <span className="absolute top-0 right-0 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[#432817] px-1 text-[7px] text-white">
+                  {cartCount}
+                </span>
+              )}
+            </button>
 
-        {user && (
-          <button
-            type="button"
-            onClick={() =>
-              setUserMenu(!userMenu)
-            }
-            aria-label="Account"
-            className="overflow-hidden rounded-full border border-[#C9B39D] p-0.5"
-          >
-            {userImage ? (
-              <img
-                src={userImage}
-                alt={userName}
-                className="h-8 w-8 rounded-full object-cover"
-                referrerPolicy="no-referrer"
-                onError={(event) => {
-                  event.currentTarget.style.display =
-                    "none";
-                }}
-              />
-            ) : (
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#432817] text-white">
-                <UserRound
-                  size={14}
-                  strokeWidth={1.5}
-                />
-              </span>
+            {/* User avatar */}
+
+            {user && (
+              <button
+                type="button"
+                // BUG FIX: this used to call setUserMenu(!userMenu), but no
+                // dropdown for `userMenu` was ever rendered anywhere in this
+                // file — tapping the avatar visibly did nothing. The full
+                // account drawer (user card + logout) already exists below via
+                // `mobileMenu`, so tapping the avatar now opens that instead of
+                // toggling dead state.
+                onClick={() => setMobileMenu(true)}
+                aria-label="Account"
+                className="overflow-hidden rounded-full border border-[#C9B39D] p-0.5"
+              >
+                {showAvatarImage ? (
+                  <img
+                    src={userImage}
+                    alt={userName}
+                    className="h-8 w-8 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarError(true)}
+                  />
+                ) : (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#432817] text-white">
+                    <UserRound
+                      size={14}
+                      strokeWidth={1.5}
+                    />
+                  </span>
+                )}
+              </button>
             )}
-          </button>
+
+            {/* Menu */}
+
+            <button
+              type="button"
+              onClick={() =>
+                setMobileMenu(!mobileMenu)
+              }
+              aria-label="Toggle menu"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[#D1B79E]/70 bg-white/20 text-[#432817] transition-colors hover:bg-white/40"
+            >
+              {mobileMenu ? (
+                <X
+                  size={19}
+                  strokeWidth={1.4}
+                />
+              ) : (
+                <Menu
+                  size={19}
+                  strokeWidth={1.4}
+                />
+              )}
+            </button>
+          </>
         )}
-
-        {/* Menu */}
-
-        <button
-          type="button"
-          onClick={() =>
-            setMobileMenu(!mobileMenu)
-          }
-          aria-label="Toggle menu"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-[#D1B79E]/70 bg-white/20 text-[#432817]"
-        >
-          {mobileMenu ? (
-            <X
-              size={19}
-              strokeWidth={1.4}
-            />
-          ) : (
-            <Menu
-              size={19}
-              strokeWidth={1.4}
-            />
-          )}
-        </button>
       </div>
 
       {/* ================================
@@ -119,21 +148,19 @@ export default function MobileMenu({
           }`}
       >
         <div className="overflow-hidden">
-          <div className="bg-[#EDE6DA] px-5 py-7">
+          {/* Panel bg aligned to the navbar's #F5F2EC theme (previously #EDE6DA) */}
+          <div className="bg-[#F5F2EC] px-5 py-7">
             {/* Mobile user card */}
 
             {user && (
               <div className="mb-7 flex items-center gap-3 rounded-2xl border border-[#D1B79E]/60 bg-white/25 p-3">
-                {userImage ? (
+                {showAvatarImage ? (
                   <img
                     src={userImage}
                     alt={userName}
                     className="h-11 w-11 rounded-full object-cover"
                     referrerPolicy="no-referrer"
-                    onError={(event) => {
-                      event.currentTarget.style.display =
-                        "none";
-                    }}
+                    onError={() => setAvatarError(true)}
                   />
                 ) : (
                   <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#432817] text-white">
@@ -177,6 +204,19 @@ export default function MobileMenu({
                   </span>
                 </button>
               ))}
+
+              {/* MISSING FEATURE ADDED: desktop nav has a "Brands" entry
+                  (NavbarNav's BrandsDropdown), mobile had no way to reach
+                  it at all. Links straight to /brands, same as desktop's
+                  "View all brands" fallback. */}
+              <button
+                type="button"
+                onClick={() => onNavigate("/brands")}
+                className="flex items-center justify-between border-b border-[#D1B79E]/45 py-4 text-left text-[10px] font-semibold tracking-[0.2em] text-[#432817] uppercase"
+              >
+                Brands
+                <span className="text-[#977150]">↗</span>
+              </button>
 
               <button
                 type="button"

@@ -105,6 +105,16 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/search"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CategoryPage userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/cart"

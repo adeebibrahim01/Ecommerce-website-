@@ -1,8 +1,7 @@
-import { Search } from "lucide-react";
-
 import UserMenu from "./UserMenu";
 import CartPreview from "./CartPreview";
 import WishlistPreview from "../shop/WishlistPreview";
+import NavbarSearch from "./NavbarSearch";
 
 export default function NavbarActions({
   user,
@@ -19,18 +18,19 @@ export default function NavbarActions({
   wishlistItems,
   onRemoveWishlistItem,
   onAddWishlistItemToCart,
-  wishlistAddingMap,
+  wishlistAddingMap = {}, // BUG FIX: defaulted so a missing/forgotten prop from a parent never sends `undefined` down to WishlistPreview's `isAdding`
 }) {
   return (
     <div className="hidden items-center gap-1 rounded-full border border-[#D1B79E]/50 bg-white/30 py-1 pr-1 pl-2 sm:flex">
-      {/* Search */}
-      <button
-        type="button"
-        aria-label="Search"
-        className="flex h-9 w-9 items-center justify-center rounded-full text-[#432817] transition-all duration-300 hover:bg-white/60 hover:text-[#977150]"
-      >
-        <Search size={17} strokeWidth={1.35} />
-      </button>
+      {/* Search — trigger button + full-width search overlay is included
+          inside NavbarSearch itself. cartItems/wishlistItems isliye pass
+          kiye hain taake result cards par "In Cart" / "Wishlisted" label
+          dikh sakay */}
+      <NavbarSearch
+        onNavigate={onNavigate}
+        cartItems={cartItems}
+        wishlistItems={wishlistItems}
+      />
 
       {/* Wishlist — ab CartPreview jaisa hover dropdown */}
       <WishlistPreview

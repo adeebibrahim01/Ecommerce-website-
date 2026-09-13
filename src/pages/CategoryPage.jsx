@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { SlidersHorizontal, ChevronDown, RotateCcw } from "lucide-react";
 
 import ProductCard from "../components/shop/ProductCard";
@@ -8,25 +8,31 @@ import ProductSort from "../components/shop/ProductSort";
 import { useCart } from "../hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
 
-// Ek hi page — Men, Women, New In, Sale, Collections (aur kal ko koi bhi
-// nayi category/collection) sab isi se chalte hain. `App.jsx` mein wire
-// kiya jata hai:
+// Ek hi page — Men, Women, New In, Sale, Collections, aur ab Search bhi
+// isi se chalte hain. `App.jsx` mein wire kiya jata hai:
 //
 //   <Route path="/men" element={<CategoryPage category="men" />} />
 //   <Route path="/women" element={<CategoryPage category="women" />} />
 //   <Route path="/new-in" element={<CategoryPage collection="new-in" />} />
 //   <Route path="/sale" element={<CategoryPage collection="sale" />} />
 //   <Route path="/collections" element={<CategoryPage />} />
+//   <Route path="/search" element={<CategoryPage />} />
 //
 // `category` aur `collection` do alag filters hain (backend `/products`
 // dono ko independently support karta hai). `category` slug se aata hai
 // (men/women), `collection` backend ke is_new_in / is_on_sale / featured
 // flags pe filter karta hai. Koi bhi prop na diya jaye (jaise /collections)
 // to bilkul bina filter ke sab active products aa jate hain.
+//
+// SEARCH: `?q=...` URL query param se aata hai (koi prop nahi chahiye) —
+// isliye NavbarSearch ka "View all results" button seedha
+// `/search?q=term` par navigate kar ke ise reuse kar sakta hai, aur
+// agar kal ko /collections?q=term jaisa link bhi kahin se aa jaye to
+// wo bhi automatically search jaisa behave karega.
 const API_BASE =
     import.meta.env.VITE_PRODUCT_API_URL || "https://product-worker-service.adeebibrahim01.workers.dev";
 
-async function fetchAllProducts({ categorySlug, collectionSlug }, signal) {
+async function fetchAllProducts({ categorySlug, collectionSlug, searchQuery }, signal) {
     const all = [];
     let page = 1;
     const limit = 50;
@@ -38,6 +44,7 @@ async function fetchAllProducts({ categorySlug, collectionSlug }, signal) {
         });
         if (categorySlug) params.set("category", categorySlug);
         if (collectionSlug) params.set("collection", collectionSlug);
+        if (searchQuery) params.set("search", searchQuery);
 
         const res = await fetch(`${API_BASE}/products?${params.toString()}`, {
             signal,
@@ -109,8 +116,16 @@ const KNOWN_COLLECTION_COPY = {
     bestseller: { label: "Bestsellers", curated: "Customer favorites" },
 };
 
-// category prop > collection prop > "sab kuch" (Collections page).
-function getPageCopy(categorySlug, collectionSlug) {
+// searchQuery > category prop > collection prop > "sab kuch" (Collections page).
+function getPageCopy(categorySlug, collectionSlug, searchQuery) {
+    if (searchQuery) {
+        return {
+            label: `"${searchQuery}"`,
+            curated: "Search results",
+            isSearch: true,
+        };
+    }
+
     if (categorySlug) {
         const known = KNOWN_CATEGORY_COPY[categorySlug.toLowerCase()];
         if (known) return known;
@@ -167,9 +182,16 @@ export default function CategoryPage({
     const categorySlug = categoryProp || (collectionProp ? null : paramSlug);
     const collectionSlug = collectionProp || null;
 
+    // Search query — URL se (`/search?q=shirt`). Isay category/collection
+    // prop na hone ki condition se bandh nahi kiya taake agar kabhi
+    // /collections?q=... jaisa link bhi aaye to wo bhi search ki tarah
+    // kaam kare.
+    const [searchParams] = useSearchParams();
+    const searchQuery = (searchParams.get("q") || "").trim();
+
     const copy = useMemo(
-        () => getPageCopy(categorySlug, collectionSlug),
-        [categorySlug, collectionSlug]
+        () => getPageCopy(categorySlug, collectionSlug, searchQuery),
+        [categorySlug, collectionSlug, searchQuery]
     );
 
     const [selectedCategory, setSelectedCategory] = useState("All");
@@ -193,7 +215,7 @@ export default function CategoryPage({
         setIsLoadingProducts(true);
         setLoadError("");
 
-        fetchAllProducts({ categorySlug, collectionSlug }, controller.signal)
+        fetchAllProducts({ categorySlug, collectionSlug, searchQuery }, controller.signal)
             .then((rows) => {
                 if (cancelled) return;
                 setProducts(rows.map(normalizeProduct));
@@ -213,13 +235,13 @@ export default function CategoryPage({
             cancelled = true;
             controller.abort();
         };
-    }, [categorySlug, collectionSlug, reloadToken]);
+    }, [categorySlug, collectionSlug, searchQuery, reloadToken]);
 
-    // Men se Women (ya kisi bhi dusri category/collection) pe jaate hi
-    // purani category ka "type" filter reset ho jaye.
+    // Men se Women (ya kisi bhi dusri category/collection/search) pe
+    // jaate hi purani category ka "type" filter reset ho jaye.
     useEffect(() => {
         setSelectedCategory("All");
-    }, [categorySlug, collectionSlug]);
+    }, [categorySlug, collectionSlug, searchQuery]);
 
     const handleAddToCart = async (product) => {
         if (!userId) {
@@ -357,7 +379,7 @@ export default function CategoryPage({
 
                         <div className="hidden shrink-0 items-center gap-3 md:flex">
                             <span className="text-[10px] tracking-[0.16em] text-[#8A8177] uppercase">
-                                {copy.label} Edit
+                                {copy.isSearch ? "Search" : `${copy.label} Edit`}
                             </span>
 
                             {isLoadingProducts ? (
@@ -445,7 +467,9 @@ export default function CategoryPage({
                             </p>
 
                             <h3 className="font-serif text-3xl tracking-[-0.02em] text-[#432817] sm:text-4xl">
-                                Couldn't load the {copy.label.toLowerCase()} collection
+                                {copy.isSearch
+                                    ? "Couldn't load your search results"
+                                    : `Couldn't load the ${copy.label.toLowerCase()} collection`}
                             </h3>
 
                             <p className="mx-auto mt-4 max-w-sm text-xs leading-6 text-[#7E7E86]">
@@ -471,9 +495,11 @@ export default function CategoryPage({
                                 </p>
 
                                 <h2 className="font-serif text-3xl leading-none tracking-[-0.02em] text-[#432817] sm:text-4xl lg:text-[2.75rem]">
-                                    {selectedCategory === "All"
-                                        ? `${copy.label} Collection`
-                                        : selectedCategory}
+                                    {copy.isSearch
+                                        ? `Results for ${copy.label}`
+                                        : selectedCategory === "All"
+                                            ? `${copy.label} Collection`
+                                            : selectedCategory}
                                 </h2>
                             </div>
 
@@ -514,17 +540,19 @@ export default function CategoryPage({
                             </div>
 
                             <p className="mb-3 text-[9px] font-semibold tracking-[0.25em] text-[#8A8177] uppercase">
-                                Nothing here yet
+                                {copy.isSearch ? "No matches" : "Nothing here yet"}
                             </p>
 
                             <h3 className="font-serif text-3xl tracking-[-0.02em] text-[#432817] sm:text-4xl">
-                                No {copy.label.toLowerCase()} pieces found
+                                {copy.isSearch
+                                    ? `No results for ${copy.label}`
+                                    : `No ${copy.label.toLowerCase()} pieces found`}
                             </h3>
 
                             <p className="mx-auto mt-4 max-w-sm text-xs leading-6 text-[#7E7E86]">
-                                We couldn't find any products in the {copy.label.toLowerCase()}{" "}
-                                collection matching your selected filter. Try exploring
-                                another category.
+                                {copy.isSearch
+                                    ? "We couldn't find any products matching your search. Try a different keyword or browse our collections instead."
+                                    : `We couldn't find any products in the ${copy.label.toLowerCase()} collection matching your selected filter. Try exploring another category.`}
                             </p>
 
                             <button
@@ -532,7 +560,7 @@ export default function CategoryPage({
                                 onClick={() => setSelectedCategory("All")}
                                 className="mt-8 inline-flex items-center justify-center rounded-full border border-[#432817] bg-[#432817] px-7 py-3 text-[9px] font-semibold tracking-[0.18em] text-white uppercase transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#5A3926] hover:shadow-lg"
                             >
-                                View all {copy.label.toLowerCase()} pieces
+                                {copy.isSearch ? "Clear filter" : `View all ${copy.label.toLowerCase()} pieces`}
                             </button>
                         </div>
                     </div>

@@ -12,6 +12,15 @@ export default function Navbar() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
 
+  // BUG FIX (missing prop wiring): NavbarActions -> WishlistPreview expects
+  // a `wishlistAddingMap` (passed through as `isAdding`) so it can show a
+  // per-item loading state while "Add to Cart" is in flight from the
+  // wishlist dropdown. This never existed before, so the prop always
+  // arrived as undefined. Tracked here as a simple { [productId]: true }
+  // map — set before the mutation starts, cleared in `finally` regardless
+  // of success or failure.
+  const [wishlistAddingMap, setWishlistAddingMap] = useState({});
+
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
@@ -29,12 +38,30 @@ export default function Navbar() {
   // Wishlist dropdown ke "Add to Cart" button ke liye —
   // cart mein daalo aur wishlist se turant hata do
   const handleAddWishlistItemToCart = async (item) => {
-    await addToCart(item.id, 1, {
-      name: item.name,
-      price: item.sale_price ?? item.price,
-      image: item.image,
-    });
-    await removeFromWishlist(item.id);
+    setWishlistAddingMap((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      // BUG FIX: addToCart() returns `false` on failure (it never throws —
+      // see useCart.js), but this used to call removeFromWishlist()
+      // unconditionally right after. That meant a failed "add to cart"
+      // (network error, server down, etc.) still silently deleted the item
+      // from the wishlist — permanent data loss with nothing actually
+      // added to the cart. Now the wishlist item is only removed once the
+      // cart add has actually succeeded.
+      const addedToCart = await addToCart(item.id, 1, {
+        name: item.name,
+        price: item.sale_price ?? item.price,
+        image: item.image,
+      });
+      if (addedToCart) {
+        await removeFromWishlist(item.id);
+      }
+    } finally {
+      setWishlistAddingMap((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+    }
   };
 
   const userName =
@@ -84,6 +111,7 @@ export default function Navbar() {
           wishlistItems={wishlistItems}
           onRemoveWishlistItem={removeFromWishlist}
           onAddWishlistItemToCart={handleAddWishlistItemToCart}
+          wishlistAddingMap={wishlistAddingMap}
         />
 
         <MobileMenu

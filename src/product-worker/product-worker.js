@@ -180,9 +180,14 @@ app.get('/products', async (c) => {
             LEFT JOIN brands b ON b.id = p.brand_id
         `;
 
+        // BUG FIX: brand_logo wasn't being selected here at all, so the
+        // navbar search dropdown (and anywhere else using /products) had no
+        // way to show a brand's logo next to its name — only brand_name text
+        // was available. Added b.logo as brand_logo alongside the existing
+        // brand_name/brand_slug columns.
         const { results } = await c.env.DB.prepare(
             `SELECT p.*, cat.name as category_name, cat.slug as category_slug,
-                    b.name as brand_name, b.slug as brand_slug
+                    b.name as brand_name, b.slug as brand_slug, b.logo as brand_logo
              ${joinClause}
              ${where}
              ORDER BY ${orderBy}
@@ -203,9 +208,11 @@ app.get('/products', async (c) => {
 app.get('/products/:id', async (c) => {
     try {
         const id = c.req.param('id');
+        // Same brand_logo addition here for consistency — the product
+        // detail page benefits from the same field being available.
         const product = await c.env.DB.prepare(
             `SELECT p.*, cat.name as category_name, cat.slug as category_slug,
-                    b.name as brand_name, b.slug as brand_slug
+                    b.name as brand_name, b.slug as brand_slug, b.logo as brand_logo
              FROM products p
              LEFT JOIN categories cat ON cat.id = p.category_id
              LEFT JOIN brands b ON b.id = p.brand_id

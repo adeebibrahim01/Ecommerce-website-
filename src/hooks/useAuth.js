@@ -103,6 +103,40 @@ export function useAuth() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ==========================================
+  // CROSS-TAB SYNC
+  // The browser only fires the "storage" event in OTHER tabs (never the tab
+  // that made the change), so this is exactly what we need to react when
+  // login/logout happens in a different tab. If auth_token disappears in
+  // another tab, force logout here too. If user_info changes (login/signup/
+  // profile update elsewhere), sync this tab's user state to match.
+  // ==========================================
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (event.key !== "auth_token" && event.key !== "user_info") return;
+
+      const currentToken = localStorage.getItem("auth_token");
+
+      if (!currentToken) {
+        // Another tab logged out — force logout here immediately.
+        setUser(null);
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      // Another tab logged in / signed up / updated the profile — sync it.
+      try {
+        const savedUser = localStorage.getItem("user_info");
+        setUser(savedUser ? JSON.parse(savedUser) : null);
+      } catch {
+        setUser(null);
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [navigate]);
+
   const loginWithGoogle = () => {
     window.location.href = `${API_BASE_URL}/auth/google`;
   };
