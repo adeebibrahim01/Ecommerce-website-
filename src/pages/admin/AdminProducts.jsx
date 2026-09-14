@@ -74,7 +74,7 @@ function getBadgeMismatchWarning(form) {
 }
 
 const FILTER_CATEGORIES = ["Tops", "Bottoms", "Outerwear", "Shoes", "Clothing", "Accessories"];
-const BADGES = ["", "New", "Bestseller", "Sale"];
+const BADGES = ["", "New", "Bestseller", "Featured", "Sale"];
 const STATUSES = ["active", "draft", "archived"];
 const COLLECTIONS = [
     { value: "", label: "All collections" },
@@ -103,6 +103,7 @@ const EMPTY_PRODUCT = {
     is_new_in: false,
     is_on_sale: false,
     featured: false,
+    bestseller: false,
     status: "active",
 };
 
@@ -825,6 +826,15 @@ function ProductFormPopover({ mode, initialData, categories, brands, onSave, onC
                             <input type="checkbox" checked={!!form.featured} onChange={(e) => update("featured", e.target.checked)} />
                             Featured
                         </label>
+                        {/* Bestseller checkbox */}
+<label className="flex items-center gap-2 text-xs text-[#432817]">
+    <input
+        type="checkbox"
+        checked={!!form.bestseller}
+        onChange={(e) => update("bestseller", e.target.checked)}
+    />
+    Bestseller
+</label>
                     </div>
 
                     {badgeWarning && (
@@ -951,6 +961,7 @@ export default function AdminProducts() {
             is_new_in: !!product.is_new_in,
             is_on_sale: !!product.is_on_sale,
             featured: !!product.featured,
+            bestseller: !!product.bestseller,
         });
         setFormMode("edit");
     };
@@ -972,6 +983,7 @@ export default function AdminProducts() {
             is_new_in: form.is_new_in ? 1 : 0,
             is_on_sale: form.is_on_sale ? 1 : 0,
             featured: form.featured ? 1 : 0,
+            bestseller: form.bestseller ? 1 : 0,
         };
 
         try {

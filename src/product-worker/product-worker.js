@@ -145,28 +145,61 @@ app.get('/products', async (c) => {
         const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '24', 10)));
         const offset = (page - 1) * limit;
 
-        const category = c.req.query('category');   // name ya slug — 'Men', 'women', wagera
-        const brand = c.req.query('brand');          // name ya slug
-        const filterCategory = c.req.query('filterCategory');
-        const type = c.req.query('type');
-        const collection = c.req.query('collection');
-        const search = (c.req.query('search') || '').trim();
-        const sort = c.req.query('sort') || 'newest';
+const category = c.req.query('category');
+const brand = c.req.query('brand');
+const filterCategory = c.req.query('filterCategory');
+const type = c.req.query('type');
+const collection = c.req.query('collection');
 
+const isNewIn = c.req.query('is_new_in');
+const featured = c.req.query('featured');
+const bestseller = c.req.query('bestseller');
+
+const search = (c.req.query('search') || '').trim();
+const sort = c.req.query('sort') || 'newest';
         const conditions = ["p.status = 'active'"];
         const bindings = [];
 
         if (category) { conditions.push('(cat.slug = ? OR cat.name = ?)'); bindings.push(category, category); }
         if (brand) { conditions.push('(b.slug = ? OR b.name = ?)'); bindings.push(brand, brand); }
-        if (filterCategory) { conditions.push('p.filter_category = ?'); bindings.push(filterCategory); }
-        if (type) { conditions.push('p.type = ?'); bindings.push(type); }
-        if (search) { conditions.push('p.name LIKE ?'); bindings.push(`%${search}%`); }
+        if (filterCategory) {
+    conditions.push('p.filter_category = ?');
+    bindings.push(filterCategory);
+}
 
-        if (collection === 'new-in') conditions.push('p.is_new_in = 1');
-        else if (collection === 'sale') conditions.push('p.is_on_sale = 1');
-        else if (collection === 'featured') conditions.push('p.featured = 1');
-        else if (collection === 'bestseller') conditions.push("p.badge = 'Bestseller'");
+if (type) {
+    conditions.push('p.type = ?');
+    bindings.push(type);
+}
 
+if (search) {
+    conditions.push('p.name LIKE ?');
+    bindings.push(`%${search}%`);
+}
+
+// Home page ke independent database filters
+if (isNewIn === '1') {
+    conditions.push('p.is_new_in = 1');
+}
+
+if (featured === '1') {
+    conditions.push('p.featured = 1');
+}
+
+if (bestseller === '1') {
+    conditions.push('p.bestseller = 1');
+}
+
+// Existing collection filters
+if (collection === 'new-in') {
+    conditions.push('p.is_new_in = 1');
+} else if (collection === 'sale') {
+    conditions.push('p.is_on_sale = 1');
+} else if (collection === 'featured') {
+    conditions.push('p.featured = 1');
+} else if (collection === 'bestseller') {
+    conditions.push('p.bestseller = 1');
+}
         const where = `WHERE ${conditions.join(' AND ')}`;
 
         const orderBy =
@@ -396,10 +429,12 @@ app.get('/admin/products', requireAdmin, async (c) => {
         if (filterCategory) { conditions.push('p.filter_category = ?'); bindings.push(filterCategory); }
         if (status) { conditions.push('p.status = ?'); bindings.push(status); }
 
+        // FIX: same as public listing — bestseller ab boolean column p.bestseller = 1
+        // se filter hota hai, badge text field se nahi.
         if (collection === 'new-in') conditions.push('p.is_new_in = 1');
         else if (collection === 'sale') conditions.push('p.is_on_sale = 1');
         else if (collection === 'featured') conditions.push('p.featured = 1');
-        else if (collection === 'bestseller') conditions.push("p.badge = 'Bestseller'");
+        else if (collection === 'bestseller') conditions.push('p.bestseller = 1');
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -437,10 +472,13 @@ app.post('/admin/products', requireAdmin, async (c) => {
             return c.json({ success: false, message: 'name, price, image aur category zaroori hain.' }, 400);
         }
 
+        // FIX: bestseller column featured ki tarah insert honi chahiye (0/1),
+        // warna admin panel se product ko bestseller mark karne ka koi tareeqa
+        // nahi tha (sirf 'badge' text field set hota tha, jo alag cheez hai).
         const result = await c.env.DB.prepare(
             `INSERT INTO products
-                (name, description, price, sale_price, image, category_id, brand_id, filter_category, type, badge, is_new_in, is_on_sale, featured, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                (name, description, price, sale_price, image, category_id, brand_id, filter_category, type, badge, is_new_in, is_on_sale, featured, bestseller, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
             name,
             body.description ? body.description.trim() : null,
@@ -455,6 +493,7 @@ app.post('/admin/products', requireAdmin, async (c) => {
             body.is_new_in ? 1 : 0,
             body.is_on_sale ? 1 : 0,
             body.featured ? 1 : 0,
+            body.bestseller ? 1 : 0,
             body.status || 'active'
         ).run();
 
@@ -469,7 +508,9 @@ app.patch('/admin/products/:id', requireAdmin, async (c) => {
     try {
         const id = c.req.param('id');
         const body = await c.req.json();
-        const fields = ['name', 'description', 'price', 'sale_price', 'image', 'category_id', 'brand_id', 'filter_category', 'type', 'badge', 'is_new_in', 'is_on_sale', 'featured', 'status'];
+        // FIX: 'bestseller' field add ki gayi hai taake PATCH se bhi
+        // products ko bestseller mark/unmark kiya ja sake — 'featured' jaisa.
+        const fields = ['name', 'description', 'price', 'sale_price', 'image', 'category_id', 'brand_id', 'filter_category', 'type', 'badge', 'is_new_in', 'is_on_sale', 'featured', 'bestseller', 'status'];
         const updates = [];
         const bindings = [];
 

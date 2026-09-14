@@ -20,6 +20,7 @@ import AdminLogin from "./pages/AdminLogin";
 import BrandProducts from "./pages/BrandProducts";
 import BrandsIndex from "./pages/BrandsIndex";
 import WishlistPage from "./pages/WishlistPage";
+
 function MainLayout({ children }) {
   return (
     <>
@@ -82,6 +83,8 @@ function App() {
         }
       />
 
+      {/* ==================== COLLECTIONS ==================== */}
+
       {/* New In — backend collection=new-in filter (p.is_new_in = 1) */}
       <Route
         path="/new-in"
@@ -105,6 +108,45 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* New Arrivals — backend collection=new-in filter */}
+      <Route
+        path="/new-arrivals"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CategoryPage collection="new-in" userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Best Sellers — backend collection=bestseller filter */}
+      <Route
+        path="/bestsellers"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CategoryPage collection="bestseller" userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Featured — backend collection=featured filter */}
+      <Route
+        path="/featured"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <CategoryPage collection="featured" userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ==================== SEARCH ==================== */}
+
       <Route
         path="/search"
         element={
@@ -116,6 +158,8 @@ function App() {
         }
       />
 
+      {/* ==================== CART ==================== */}
+
       <Route
         path="/cart"
         element={
@@ -126,6 +170,9 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* ==================== PRODUCT ==================== */}
+
       <Route
         path="/product/:slug"
         element={
@@ -137,7 +184,9 @@ function App() {
         }
       />
 
-      {/* Brands — general listing (jab "Brands" khud click ho, slug ke bina) */}
+      {/* ==================== BRANDS ==================== */}
+
+      {/* Brands — general listing */}
       <Route
         path="/brands"
         element={
@@ -149,7 +198,7 @@ function App() {
         }
       />
 
-      {/* Brands — specific brand ke products */}
+      {/* Brands — specific brand products */}
       <Route
         path="/brands/:slug"
         element={
@@ -161,9 +210,11 @@ function App() {
         }
       />
 
+      {/* ==================== ORDER ==================== */}
+
       <Route path="/order-success" element={<OrderSuccess />} />
 
-      {/* ==================== AUTH (customer) ==================== */}
+      {/* ==================== AUTH (CUSTOMER) ==================== */}
 
       <Route path="/login" element={<LoginForm />} />
       <Route path="/login-success" element={<LoginSuccess />} />
@@ -173,6 +224,7 @@ function App() {
       {/* ==================== ADMIN ==================== */}
 
       <Route path="/admin-login" element={<AdminLogin />} />
+
       <Route
         path="/admin"
         element={
@@ -181,6 +233,9 @@ function App() {
           </AdminRoute>
         }
       />
+
+      {/* ==================== WISHLIST ==================== */}
+
       <Route
         path="/wishlist"
         element={

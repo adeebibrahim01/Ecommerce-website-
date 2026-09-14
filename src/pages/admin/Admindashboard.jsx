@@ -11,8 +11,11 @@ import {
     ShieldAlert,
     Package,
 } from "lucide-react";
+
+
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import AdminProducts from "./AdminProducts";
+import AdminBanners from "../../components/admin/AdminBanners";
 const API_BASE_URL = "https://aurelia-admin-worker.adeebibrahim01.workers.dev";
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -337,9 +340,7 @@ export default function AdminDashboard() {
     const { admin, logout } = useAdminAuth();
     const navigate = useNavigate();
     const { toasts, push } = useToasts();
-
-    const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "products"
-
+const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "products" | "banners"
     const [stats, setStats] = useState(null);
 
     // ---- Users tab state ----
@@ -664,6 +665,17 @@ export default function AdminDashboard() {
                     >
                         Products
                     </button>
+                    <button
+    type="button"
+    onClick={() => setActiveTab("banners")}
+    className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${
+        activeTab === "banners"
+            ? "border-[#432817] text-[#432817]"
+            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+    }`}
+>
+    Banners
+</button>
                 </div>
 
                 {activeTab === "users" ? (
@@ -947,9 +959,11 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                     </>
-                ) : (
-                    <AdminProducts />
-                )}
+                ) : activeTab === "products" ? (
+    <AdminProducts />
+) : (
+    <AdminBanners />
+)}
             </div>
         </main>
     );
