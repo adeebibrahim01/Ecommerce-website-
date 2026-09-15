@@ -27,8 +27,11 @@ const navItems = [
     label: "Sale",
     path: "/sale",
   },
+  {
+    label: "Deals",
+    path: "/deals",
+  },
 ];
-
 function BrandsDropdown({ onNavigate }) {
   const [open, setOpen] = useState(false);
   const [brands, setBrands] = useState([]);

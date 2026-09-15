@@ -7,6 +7,7 @@ import ProductFilters from "../components/shop/ProductFilters";
 import ProductSort from "../components/shop/ProductSort";
 import { useCart } from "../hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
+import { DEALS_API_URL, computeDiscountedPrice, resolveDealProducts } from "../utils/deals";
 
 // Ek hi page — Men, Women, New In, Sale, Collections, aur ab Search bhi
 // isi se chalte hain. `App.jsx` mein wire kiya jata hai:
@@ -29,6 +30,17 @@ import { useAuth } from "../hooks/useAuth";
 // `/search?q=term` par navigate kar ke ise reuse kar sakta hai, aur
 // agar kal ko /collections?q=term jaisa link bhi kahin se aa jaye to
 // wo bhi automatically search jaisa behave karega.
+//
+// DEALS: product-worker ke `/products` mein deals ka koi concept nahi hai
+// (deals ek alag worker/table hai). Is liye yahan ek separate effect saare
+// active deals load karta hai aur unhe resolve karke productId -> deal
+// map banata hai. Is map se do cheezein hoti hain:
+//   1) Jo product already list mein hai (normal fetch se), uspe deal
+//      badge + discounted price overlay ho jata hai.
+//   2) Search ke waqt, agar koi deal-product list mein nahi hai (uski
+//      category/brand filter match nahi hui) lekin uska naam query se
+//      match karta hai, to wo bhi results mein add ho jata hai — taake
+//      "deals ke products bhi search mein aayein".
 const API_BASE =
     import.meta.env.VITE_PRODUCT_API_URL || "https://product-worker-service.adeebibrahim01.workers.dev";
 
@@ -202,6 +214,9 @@ export default function CategoryPage({
     const [loadError, setLoadError] = useState("");
     const [reloadToken, setReloadToken] = useState(0);
 
+    // productId -> { dealId, dealName, basePrice, discountedPrice, product }
+    const [dealProductInfo, setDealProductInfo] = useState(new Map());
+
     const { user } = useAuth();
     const userId = userIdProp || user?.id;
 
@@ -237,23 +252,133 @@ export default function CategoryPage({
         };
     }, [categorySlug, collectionSlug, searchQuery, reloadToken]);
 
+    // Saare active deals ek baar load karo aur unhe productId -> deal info
+    // map mein resolve karo. Page/search/category se independent hai —
+    // deals list khud change nahi hoti jab tak koi navigation na ho.
+    useEffect(() => {
+        const controller = new AbortController();
+        let cancelled = false;
+
+        async function loadDeals() {
+            try {
+                const res = await fetch(`${DEALS_API_URL}/deals`, { signal: controller.signal });
+                if (!res.ok) return;
+
+                const data = await res.json();
+                if (!data?.success) return;
+
+                const slugCache = new Map();
+                const resolvedByDeal = await Promise.all(
+                    (data.deals || []).map(async (deal) => {
+                        const items = await resolveDealProducts(deal, slugCache, controller.signal);
+                        return { deal, items };
+                    })
+                );
+
+                if (cancelled) return;
+
+                const infoMap = new Map();
+                for (const { deal, items } of resolvedByDeal) {
+                    for (const item of items) {
+                        if (item?.id == null) continue;
+                        const discounted = computeDiscountedPrice(item.price, deal.value, deal.type);
+                        const existing = infoMap.get(item.id);
+                        // Ek product agar ek se zyada deals mein ho to
+                        // sabse zyada discount wali deal ko priority do.
+                        if (!existing || discounted < existing.discountedPrice) {
+                            infoMap.set(item.id, {
+                                dealId: deal.id,
+                                dealName: deal.name,
+                                basePrice: Number(item.price),
+                                discountedPrice: discounted,
+                                product: item,
+                            });
+                        }
+                    }
+                }
+
+                setDealProductInfo(infoMap);
+            } catch (err) {
+                if (cancelled || err.name === "AbortError") return;
+                console.error("Deals fetch error (category/search page):", err);
+            }
+        }
+
+        loadDeals();
+
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+    }, [reloadToken]);
+
     // Men se Women (ya kisi bhi dusri category/collection/search) pe
     // jaate hi purani category ka "type" filter reset ho jaye.
     useEffect(() => {
         setSelectedCategory("All");
     }, [categorySlug, collectionSlug, searchQuery]);
 
-    const handleAddToCart = async (product) => {
+    // Search active ho to deal-matched products bhi shamil karo jo normal
+    // fetch se nahi aaye (kyunke unki category/brand filter match nahi
+    // hui) lekin naam query se match karta hai.
+    const mergedProducts = useMemo(() => {
+        if (!searchQuery || dealProductInfo.size === 0) return products;
+
+        const existingIds = new Set(products.map((p) => p.id));
+        const query = searchQuery.toLowerCase();
+
+        const extras = [];
+        for (const info of dealProductInfo.values()) {
+            const dealProduct = info.product;
+            if (!dealProduct?.id || existingIds.has(dealProduct.id)) continue;
+            if (!dealProduct.name?.toLowerCase().includes(query)) continue;
+
+            extras.push({
+                id: dealProduct.id,
+                name: dealProduct.name,
+                price: info.discountedPrice,
+                originalPrice: info.basePrice,
+                isOnSale: true,
+                image: dealProduct.image,
+                filterCategory: null,
+                type: null,
+                badge: null,
+                isNewIn: false,
+                featured: 0,
+                status: "active",
+                createdAt: null,
+                updatedAt: null,
+                categoryId: null,
+                brandId: null,
+                description: null,
+            });
+        }
+
+        return extras.length ? [...products, ...extras] : products;
+    }, [products, dealProductInfo, searchQuery]);
+
+    const handleAddToCart = async (product, dealInfo) => {
         if (!userId) {
             alert("Please log in to add items to cart.");
             return;
         }
         if (!product?.id) return;
 
+        // NOTE: originalPrice bhi bhejte hain (jab product sale par ho ya
+        // deal se discounted ho) taake cart worker ke paas bhi "was" price
+        // maujood rahe, waise hi jaise deal-based add-to-cart flow
+        // (DealDetailPage) karta hai. Deal se aaya ho to dealId/dealName
+        // bhi jate hain taake cart mein deal badge sahi se render ho.
         const success = await addToCart(product.id, 1, {
             name: product.name,
-            price: product.price,
+            price: dealInfo ? dealInfo.discountedPrice : product.price,
             image: product.image,
+            originalPrice: dealInfo
+                ? dealInfo.basePrice
+                : product.isOnSale
+                    ? product.originalPrice
+                    : null,
+            ...(dealInfo && { dealId: dealInfo.dealId, dealName: dealInfo.dealName }),
         });
 
         if (success) {
@@ -262,7 +387,7 @@ export default function CategoryPage({
     };
 
     const filteredAndSortedProducts = useMemo(() => {
-        let result = [...products];
+        let result = [...mergedProducts];
 
         if (selectedCategory !== "All") {
             result = result.filter(
@@ -304,7 +429,7 @@ export default function CategoryPage({
         }
 
         return result;
-    }, [products, selectedCategory, sortBy]);
+    }, [mergedProducts, selectedCategory, sortBy]);
 
     const isProductInCart = (productId) => {
         if (!cartItems) return false;
@@ -507,25 +632,38 @@ export default function CategoryPage({
                         </div>
 
                         <div className="grid grid-cols-2 gap-x-3 gap-y-10 sm:gap-x-5 sm:gap-y-12 lg:grid-cols-3 lg:gap-x-6 lg:gap-y-16 xl:grid-cols-4 xl:gap-x-7">
-                            {filteredAndSortedProducts.map((product, index) => (
-                                <div
-                                    key={product.id}
-                                    className="aurelia-grid-item group min-w-0"
-                                    style={{ "--aurelia-delay": `${Math.min(index * 45, 360)}ms` }}
-                                >
-                                    <ProductCard
-                                        id={product.id}
-                                        name={product.name}
-                                        price={product.price}
-                                        image={product.image}
-                                        category={product.type}
-                                        badge={product.badge}
-                                        isInCart={isProductInCart(product.id)}
-                                        onAddToCart={() => handleAddToCart(product)}
-                                        isCartLoading={isCartLoading}
-                                    />
-                                </div>
-                            ))}
+                            {filteredAndSortedProducts.map((product, index) => {
+                                const dealInfo = dealProductInfo.get(product.id);
+                                const cardPrice = dealInfo ? dealInfo.discountedPrice : product.price;
+                                const cardOriginalPrice = dealInfo
+                                    ? dealInfo.basePrice
+                                    : product.isOnSale
+                                        ? product.originalPrice
+                                        : null;
+
+                                return (
+                                    <div
+                                        key={product.id}
+                                        className="aurelia-grid-item group min-w-0"
+                                        style={{ "--aurelia-delay": `${Math.min(index * 45, 360)}ms` }}
+                                    >
+                                        <ProductCard
+                                            id={product.id}
+                                            name={product.name}
+                                            price={cardPrice}
+                                            image={product.image}
+                                            category={product.type}
+                                            badge={product.badge}
+                                            isInCart={isProductInCart(product.id)}
+                                            onAddToCart={() => handleAddToCart(product, dealInfo)}
+                                            isCartLoading={isCartLoading}
+                                            originalPrice={cardOriginalPrice}
+                                            dealId={dealInfo?.dealId ?? null}
+                                            dealName={dealInfo?.dealName ?? null}
+                                        />
+                                    </div>
+                                );
+                            })}
                         </div>
                     </>
                 ) : (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Trash2, Plus, Minus, ShoppingBag, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { Trash2, Plus, Minus, ShoppingBag, ArrowLeft, CheckCircle2, Tag } from "lucide-react";
 import { useCart } from "../hooks/useCart";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
@@ -72,10 +72,16 @@ export default function CartPage() {
       );
 
       try {
+        // NOTE: deal_id/deal_name/original_price bhi resend karna zaroori hai —
+        // cart worker ka ON CONFLICT UPDATE in fields ko excluded value se
+        // overwrite karta hai. Na bhejo to deal tag yahin null ho jata hai.
         await addToCart(item.product_id, 1, {
           name: item.name,
           price: item.price,
           image: item.image,
+          dealId: item.deal_id ?? null,
+          dealName: item.deal_name ?? null,
+          originalPrice: item.original_price ?? null,
         });
       } catch (error) {
         console.error("Failed to increase quantity", error);
@@ -106,6 +112,9 @@ export default function CartPage() {
           name: item.name,
           price: item.price,
           image: item.image,
+          dealId: item.deal_id ?? null,
+          dealName: item.deal_name ?? null,
+          originalPrice: item.original_price ?? null,
         });
       } catch (error) {
         console.error("Failed to decrease quantity", error);
@@ -166,6 +175,17 @@ export default function CartPage() {
             <div className="lg:col-span-2 space-y-4">
               {localItems.map((item) => {
                 const isPending = pendingIds.has(item.product_id);
+                const fromDeal = !!item.deal_id;
+                // NOTE: original_price ab deal-based items ke alawa normal
+                // "sale_price" wale products (CategoryPage se) se bhi aa
+                // sakti hai — isliye ye check ab fromDeal par depend nahi
+                // karta, sirf original_price ki maujoodgi aur price se
+                // farq check karta hai.
+                const hasOriginalPrice =
+                  item.original_price !== null &&
+                  item.original_price !== undefined &&
+                  Number(item.original_price) !== Number(item.price);
+
                 return (
                   <div
                     key={item.product_id}
@@ -183,11 +203,22 @@ export default function CartPage() {
                         )}
                       </div>
                       <div>
+                        {fromDeal && (
+                          <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-[#432817] px-2 py-0.5 text-[8px] font-semibold tracking-[0.08em] text-white uppercase">
+                            <Tag size={9} strokeWidth={1.8} />
+                            {item.deal_name || "Deal"}
+                          </span>
+                        )}
                         <h3 className="text-xs font-semibold text-[#432817]">
                           {item.name || "Classic Fashion Item"}
                         </h3>
-                        <p className="mt-1 text-xs font-medium text-[#977150]">
+                        <p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#977150]">
                           ${Number(item.price || 0).toLocaleString()}
+                          {hasOriginalPrice && (
+                            <span className="text-[10px] text-[#8A8177] line-through">
+                              ${Number(item.original_price).toLocaleString()}
+                            </span>
+                          )}
                         </p>
                       </div>
                     </div>

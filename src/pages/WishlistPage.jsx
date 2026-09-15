@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, RotateCcw } from "lucide-react";
+import { Heart, RotateCcw, Tag } from "lucide-react";
 
 import ProductCard from "../components/shop/ProductCard";
 import { useAuth } from "../hooks/useAuth";
@@ -39,6 +39,11 @@ export default function WishlistPage({ userId: userIdProp }) {
     // ProductCard "price" prop ko number expect karta hai (sale_price > price)
     // — CategoryPage.jsx ke normalizeProduct wale exact logic se match karke
     // taake formatting/price dono jagah same rahe.
+    // NEW: deal_id/deal_name bhi carry karte hain (backend se GET /wishlist
+    // ke through aate hain agar item deal se add hua tha).
+    // NEW: original_price bhi carry karte hain — backend ab deal wale items
+    // ke liye original_price/sale_price compute karke bhejta hai, isse
+    // ProductCard apna strikethrough (originalPrice prop) render kar sake.
     const normalizedItems = useMemo(() => {
         return (wishlistItems || []).map((row) => ({
             id: row.id,
@@ -47,6 +52,9 @@ export default function WishlistPage({ userId: userIdProp }) {
             image: row.image,
             type: row.type,
             badge: row.badge,
+            dealId: row.deal_id ?? null,          // NEW
+            dealName: row.deal_name ?? null,       // NEW
+            originalPrice: row.original_price ?? null, // NEW
         }));
     }, [wishlistItems]);
 
@@ -66,9 +74,11 @@ export default function WishlistPage({ userId: userIdProp }) {
             name: product.name,
             price: product.price,
             image: product.image,
+            dealId: product.dealId,
+            dealName: product.dealName,
+            originalPrice: product.originalPrice ?? null,   // FIX: ye line add karo
         });
         if (success) {
-            // Cart mein chala gaya, ab wishlist se bhi hata do
             await removeFromWishlist(product.id);
         }
     };
@@ -176,25 +186,38 @@ export default function WishlistPage({ userId: userIdProp }) {
                         </div>
 
                         <div className="grid grid-cols-2 gap-x-3 gap-y-10 sm:gap-x-5 sm:gap-y-12 lg:grid-cols-3 lg:gap-x-6 lg:gap-y-16 xl:grid-cols-4 xl:gap-x-7">
-                            {normalizedItems.map((product, index) => (
-                                <div
-                                    key={product.id}
-                                    className="aurelia-grid-item group min-w-0"
-                                    style={{ "--aurelia-delay": `${Math.min(index * 45, 360)}ms` }}
-                                >
-                                    <ProductCard
-                                        id={product.id}
-                                        name={product.name}
-                                        price={product.price}
-                                        image={product.image}
-                                        category={product.type}
-                                        badge={product.badge}
-                                        isInCart={isProductInCart(product.id)}
-                                        onAddToCart={() => handleAddToCart(product)}
-                                        isCartLoading={isCartLoading}
-                                    />
-                                </div>
-                            ))}
+                            {normalizedItems.map((product, index) => {
+                                const fromDeal = !!product.dealId;
+
+                                return (
+                                    <div
+                                        key={product.id}
+                                        className="aurelia-grid-item group relative min-w-0"
+                                        style={{ "--aurelia-delay": `${Math.min(index * 45, 360)}ms` }}
+                                    >
+                                        {fromDeal && (
+                                            <span className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full bg-[#432817] px-2.5 py-1 text-[8px] font-semibold tracking-[0.08em] text-white uppercase">
+                                                <Tag size={9} strokeWidth={1.8} />
+                                                {product.dealName || "Deal"}
+                                            </span>
+                                        )}
+                                        <ProductCard
+                                            id={product.id}
+                                            name={product.name}
+                                            price={product.price}
+                                            image={product.image}
+                                            category={product.type}
+                                            badge={product.badge}
+                                            isInCart={isProductInCart(product.id)}
+                                            onAddToCart={() => handleAddToCart(product)}
+                                            isCartLoading={isCartLoading}
+                                            dealId={product.dealId}
+                                            dealName={product.dealName}
+                                            originalPrice={product.originalPrice}
+                                        />
+                                    </div>
+                                );
+                            })}
                         </div>
                     </>
                 ) : (

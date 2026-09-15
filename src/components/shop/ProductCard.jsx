@@ -15,6 +15,9 @@ export default function ProductCard({
   isInCart = false,
   onAddToCart,
   isCartLoading = false,
+  dealId = null,        // NEW
+  dealName = null,       // NEW
+  originalPrice = null,  // NEW
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -43,10 +46,36 @@ export default function ProductCard({
   const formattedPrice =
     typeof price === "number" ? `$${price.toLocaleString()}` : price;
 
+  // Deal wale products mein original price strikethrough ke sath dikhani hai —
+  // sirf tab jab originalPrice maujood ho aur discounted price se alag ho.
+  const hasDiscount =
+    originalPrice != null &&
+    Number(originalPrice) !== Number(price);
+
+  const formattedOriginalPrice = hasDiscount
+    ? typeof originalPrice === "number"
+      ? `$${originalPrice.toLocaleString()}`
+      : `$${Number(originalPrice).toLocaleString()}`
+    : null;
+
   const handleCardClick = () => {
-    if (id) {
-      navigate(`/product/${id}`);
+    if (!id) return;
+
+    // Deal se aaya hua card hai to deal ki info ProductDetail tak query
+    // params ke zariye bhejte hain — wahan wahi dark pill badge aur
+    // discounted price dikhane ke liye use hoti hai (bilkul isi card
+    // jaisa). Deal na ho to plain product link hi chalta hai.
+    if (dealName && hasDiscount) {
+      const params = new URLSearchParams({
+        deal: dealName,
+        dealPrice: String(price),
+      });
+      if (dealId != null) params.set("dealId", String(dealId));
+      navigate(`/product/${id}?${params.toString()}`);
+      return;
     }
+
+    navigate(`/product/${id}`);
   };
 
   const handleQuickAdd = async (e) => {
@@ -87,7 +116,15 @@ export default function ProductCard({
       return;
     }
 
-    await toggleWishlist(id, { name, price, image });
+    // Wishlist mein hamesha original (non-discount) price jata hai —
+    // agar deal se aaya hai to originalPrice use hoga, warna normal price.
+    await toggleWishlist(id, {
+      name,
+      price: originalPrice ?? price,
+      image,
+      dealId,
+      dealName,
+    });
   };
 
   return (
@@ -169,7 +206,14 @@ export default function ProductCard({
           <h3 className="text-xs font-medium tracking-wide text-[#432817]">
             {name}
           </h3>
-          <p className="shrink-0 text-xs text-[#432817]">{formattedPrice}</p>
+          <div className="shrink-0 flex flex-col items-end gap-0.5">
+            <p className="text-xs font-medium text-[#432817]">{formattedPrice}</p>
+            {hasDiscount && (
+              <p className="text-[10px] text-[#8A8177] line-through">
+                {formattedOriginalPrice}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </article>

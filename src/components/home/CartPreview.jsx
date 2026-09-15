@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { ShoppingBag, Trash2 } from "lucide-react";
+import { ShoppingBag, Trash2, Tag } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 export default function CartPreview({
@@ -56,7 +56,7 @@ export default function CartPreview({
       {/* Dropdown Box */}
       <div className="invisible absolute top-full right-0 z-50 w-80 pt-3 opacity-0 transition-all duration-200 group-hover:visible group-hover:opacity-100">
         <div className="rounded-2xl border border-[#D1B79E]/70 bg-[#F4EEE5]/95 p-3 shadow-[0_18px_50px_rgba(67,40,23,0.14)] backdrop-blur-xl">
-          
+
           {/* Header */}
           <div className="flex items-center justify-between border-b border-[#D1B79E]/50 px-2 pb-3">
             <div>
@@ -82,6 +82,17 @@ export default function CartPreview({
               <div className="space-y-2">
                 {cartItems.map((item, index) => {
                   const itemId = item.productId || item.product_id || item.id;
+                  const fromDeal = !!item.deal_id;
+                  // NOTE: original_price ab deal-based items ke alawa
+                  // normal "sale_price" wale products (CategoryPage se) se
+                  // bhi aa sakti hai — isliye ye check ab fromDeal par
+                  // depend nahi karta, sirf original_price ki maujoodgi
+                  // aur price se farq check karta hai.
+                  const hasOriginalPrice =
+                    item.original_price !== null &&
+                    item.original_price !== undefined &&
+                    Number(item.original_price) !== Number(item.price);
+
                   return (
                     <div
                       key={itemId || index}
@@ -104,6 +115,12 @@ export default function CartPreview({
 
                       {/* Product Info */}
                       <div className="min-w-0 flex-1">
+                        {fromDeal && (
+                          <span className="mb-0.5 inline-flex items-center gap-1 rounded-full bg-[#432817] px-1.5 py-0.5 text-[7px] font-semibold tracking-[0.06em] text-white uppercase">
+                            <Tag size={8} strokeWidth={1.8} />
+                            {item.deal_name || "Deal"}
+                          </span>
+                        )}
                         <p className="truncate text-[9px] font-semibold tracking-[0.04em] text-[#432817]">
                           {item.name || item.product_name || "Unnamed Product"}
                         </p>
@@ -114,9 +131,16 @@ export default function CartPreview({
 
                       {/* Price & Delete Button */}
                       <div className="flex items-center gap-2">
-                        <p className="shrink-0 text-[9px] font-medium text-[#432817]">
-                          ${Number(item.price || 0).toLocaleString()}
-                        </p>
+                        <div className="flex shrink-0 flex-col items-end gap-0.5">
+                          <p className="text-[9px] font-medium text-[#432817]">
+                            ${Number(item.price || 0).toLocaleString()}
+                          </p>
+                          {hasOriginalPrice && (
+                            <p className="text-[7px] text-[#8A8177] line-through">
+                              ${Number(item.original_price).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={(e) => handleDelete(e, item)}

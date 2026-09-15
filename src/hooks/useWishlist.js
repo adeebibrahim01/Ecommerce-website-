@@ -40,11 +40,20 @@ export function useWishlist(userId) {
     });
 
     const addToWishlistMutation = useMutation({
-        mutationFn: async ({ productId }) => {
+        mutationFn: async ({ productId, product }) => {
+            // FIX: product object (dealId/dealName sameyt) pehle yahan
+            // bheja hi nahi ja raha tha — sirf onMutate (optimistic UI)
+            // mein use ho raha tha. Isliye deal info backend tak kabhi
+            // pahunchti nahi thi aur refetch ke baad gayab ho jati thi.
             const response = await fetch(`${API_BASE_URL}/wishlist`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user_id: userId, product_id: productId }),
+                body: JSON.stringify({
+                    user_id: userId,
+                    product_id: productId,
+                    deal_id: product?.dealId ?? null,
+                    deal_name: product?.dealName ?? null,
+                }),
             });
 
             const resData = await response.json();
@@ -63,8 +72,18 @@ export function useWishlist(userId) {
                 );
                 if (alreadyExists) return old;
 
-
-                const items = [...(old.items || []), { id: productId, ...product }];
+                // NOTE: product.dealId/dealName -> optimistic item mein
+                // deal_id/deal_name naam se store karo, taake ye backend
+                // se aane wali GET /wishlist shape se match ho.
+                const items = [
+                    ...(old.items || []),
+                    {
+                        id: productId,
+                        ...product,
+                        deal_id: product?.dealId ?? null,
+                        deal_name: product?.dealName ?? null,
+                    },
+                ];
                 return { items, totalCount: items.length };
             });
 
@@ -76,11 +95,20 @@ export function useWishlist(userId) {
             }
             console.error("❌ [WISHLIST ADD ERROR]:", err);
         },
-        // NOTE: yahan invalidateQueries NAHI karna — optimistic cache hi
-        // final state hai, refetch se purana/incomplete data wapas aakar
-        // optimistic add ko overwrite kar deta tha (yehi disappearing bug tha).
         onSuccess: () => {
             window.dispatchEvent(new Event("wishlist-change"));
+
+            // FIX: optimistic item mein sirf deal_id/deal_name hote hain —
+            // original_price/sale_price (deal discount se) sirf backend ke
+            // GET /wishlist route pe compute hoti hai. Isliye add hone ke
+            // baad ek silent background refetch zaroori hai, warna
+            // strikethrough price tab tak nahi dikhti jab tak page hard
+            // refresh na ho. Ye refetch chupke se background mein hota hai,
+            // UI turant optimistic item dikha hi chuki hoti hai isliye
+            // koi flicker/disappearing nahi hota (jo purani problem thi
+            // wo backend ke incomplete response ki wajah se thi, ab
+            // backend original_price/sale_price sahi bhejta hai).
+            queryClient.invalidateQueries({ queryKey });
         },
     });
 
@@ -119,6 +147,9 @@ export function useWishlist(userId) {
         },
         onSuccess: () => {
             window.dispatchEvent(new Event("wishlist-change"));
+            // Consistency ke liye yahan bhi background refetch — remove ke
+            // baad server state se sync rehne ke liye.
+            queryClient.invalidateQueries({ queryKey });
         },
     });
 

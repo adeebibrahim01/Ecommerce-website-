@@ -4,6 +4,8 @@ import Hero from "../components/home/Hero";
 import Categories from "../components/home/Categories";
 import Banner from "../components/home/Banner";
 import ProductCard from "../components/shop/ProductCard";
+import { useAuth } from "../hooks/useAuth";
+import { useCart } from "../hooks/useCart";
 
 // ==========================================
 // API CONFIG
@@ -57,6 +59,10 @@ function normalizeProduct(row) {
     id: row.id,
     name: row.name,
     price: row.sale_price ?? row.price,
+    originalPrice: row.price,
+    isOnSale:
+      Boolean(row.is_on_sale) ||
+      (row.sale_price != null && Number(row.sale_price) < Number(row.price)),
     image: row.image,
     type: row.type,
     badge: row.badge,
@@ -104,7 +110,7 @@ function ProductCardSkeleton() {
 // HOME
 // ==========================================
 
-export default function Home() {
+export default function Home({ userId: userIdProp }) {
   const [newArrivals, setNewArrivals] = useState([]);
   const [featuredProducts, setFeaturedProducts] = useState([]);
   const [bestSellerProducts, setBestSellerProducts] =
@@ -112,6 +118,19 @@ export default function Home() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
+  // App.jsx already resolves this (user?.id || user?._id || user?.sub ||
+  // user?.email) and passes it down as `userId` — but this component was
+  // dropping the prop entirely, so `useCart` never had a real user to key
+  // off of. Falling back to useAuth() directly too, just in case Home is
+  // ever rendered without the prop.
+  const { user } = useAuth();
+  const activeUserId =
+    userIdProp || user?.id || user?._id || user?.sub || user?.email || null;
+
+  // Same hook, same query key ("cart", activeUserId) as Navbar/CartPage/
+  // ProductDetail — so an add here shows up everywhere instantly.
+  const { cartItems, addToCart, isLoading: isCartLoading } = useCart(activeUserId);
 
   // ==========================================
   // LOAD PRODUCTS
@@ -174,7 +193,7 @@ export default function Home() {
 
         setLoadError(
           err.message ||
-            "Failed to load products."
+          "Failed to load products."
         );
       })
       .finally(() => {
@@ -188,6 +207,36 @@ export default function Home() {
       controller.abort();
     };
   }, []);
+
+  // ==========================================
+  // CART HELPERS
+  // ==========================================
+
+  const isProductInCart = (productId) => {
+    if (!cartItems) return false;
+    return cartItems.some(
+      (item) => String(item.product_id || item.productId) === String(productId)
+    );
+  };
+
+  const handleAddToCart = async (product) => {
+    if (!product?.id) return;
+
+    if (!activeUserId) {
+      alert("Please log in to add items to cart.");
+      return;
+    }
+
+    // Sale par ho (sale_price < price) to "was" price bhi cart tak bhejte
+    // hain — bilkul CategoryPage/DealDetailPage jaisa — taake cart mein
+    // strikethrough sahi se dikhe.
+    await addToCart(product.id, 1, {
+      name: product.name,
+      price: product.price,
+      image: product.image,
+      originalPrice: product.isOnSale ? product.originalPrice : null,
+    });
+  };
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#EDE6DA] text-[#432817]">
@@ -290,6 +339,10 @@ export default function Home() {
                     image={product.image}
                     category={product.type}
                     badge={product.badge}
+                    isInCart={isProductInCart(product.id)}
+                    onAddToCart={() => handleAddToCart(product)}
+                    isCartLoading={isCartLoading}
+                    originalPrice={product.isOnSale ? product.originalPrice : null}
                   />
                 ))}
               </div>
@@ -354,6 +407,10 @@ export default function Home() {
                     image={product.image}
                     category={product.type}
                     badge={product.badge}
+                    isInCart={isProductInCart(product.id)}
+                    onAddToCart={() => handleAddToCart(product)}
+                    isCartLoading={isCartLoading}
+                    originalPrice={product.isOnSale ? product.originalPrice : null}
                   />
                 ))}
               </div>
@@ -418,6 +475,10 @@ export default function Home() {
                     image={product.image}
                     category={product.type}
                     badge={product.badge}
+                    isInCart={isProductInCart(product.id)}
+                    onAddToCart={() => handleAddToCart(product)}
+                    isCartLoading={isCartLoading}
+                    originalPrice={product.isOnSale ? product.originalPrice : null}
                   />
                 ))}
               </div>
@@ -437,8 +498,8 @@ export default function Home() {
         {/* =====================================
             DATABASE HOME BANNER
         ====================================== */}
-<Banner placement="home_secondary" />
-        
+        <Banner placement="home_secondary" />
+
       </main>
     </div>
   );

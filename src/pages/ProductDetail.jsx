@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Heart, ShoppingBag, ArrowLeft, Minus, Plus, Check } from "lucide-react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { Heart, ShoppingBag, ArrowLeft, Minus, Plus, Check, Tag } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useCart } from "../hooks/useCart";
+import { useWishlist } from "../hooks/useWishlist";
 import { getProductPath, parseProductId } from "../utils/productUrl";
 
 const API_BASE =
@@ -76,6 +77,7 @@ export default function ProductDetail() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
 
   // The route param can be a plain old id ("5") or the new
   // professional slug ("elegant-silk-evening-dress-5") — either
@@ -88,14 +90,33 @@ export default function ProductDetail() {
   // so an add here is instantly visible everywhere else, no custom events needed.
   const { cartItems, addToCart, isMutating, isLoading: cartLoading } = useCart(activeUserId);
 
+  // Same hook ProductCard uses — so a like/unlike here is instantly
+  // reflected on the grid, and vice versa (shared "wishlist" query key).
+  const {
+    isInWishlist,
+    toggleWishlist,
+    removeFromWishlist,
+    isMutating: isWishlistMutating,
+  } = useWishlist(activeUserId);
+
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const [quantity, setQuantity] = useState(1);
-  const [liked, setLiked] = useState(false);
   const [cartMessage, setCartMessage] = useState("");
   const [cartMessageTone, setCartMessageTone] = useState("neutral"); // "good" | "bad"
+
+  // ── Deal context (optional) ─────────────────────────────────
+  // Jab koi product DealDetailPage se open hota hai, us link mein
+  // ?deal=<name>&dealId=<id>&dealPrice=<discountedPrice> hote hain.
+  // Yahan hum unhe read karte hain taake "SHOPING SALE" jaisa badge
+  // aur discounted price sahi dikhaya ja sake — bilkul DealDetailPage
+  // ke ProductCard jaisa.
+  const dealName = searchParams.get("deal");
+  const dealId = searchParams.get("dealId");
+  const dealPriceParam = searchParams.get("dealPrice");
+  const hasDeal = Boolean(dealName && dealPriceParam);
 
   // Database se product laana hai — /products/:id koi auth nahi maangta.
   useEffect(() => {
@@ -148,13 +169,17 @@ export default function ProductDetail() {
   // "upgrade" kar dete hain (jaise YouTube apne share links ke sath
   // karta hai) — replace: true taake back button par ye extra step
   // na aaye. Agar koi already sahi slug pe hai to kuch nahi hota.
+  // Deal query params ko bhi preserve karte hain taake redirect ke
+  // baad badge/discount gayab na ho jaye.
   useEffect(() => {
     if (!product) return;
     const canonicalPath = getProductPath(product);
-    if (canonicalPath !== `/product/${slug}`) {
-      navigate(canonicalPath, { replace: true });
+    const currentPath = `/product/${slug}`;
+    if (canonicalPath !== currentPath) {
+      const qs = searchParams.toString();
+      navigate(qs ? `${canonicalPath}?${qs}` : canonicalPath, { replace: true });
     }
-  }, [product, slug, navigate]);
+  }, [product, slug, navigate, searchParams]);
 
   // Reset transient UI state whenever we land on a different product.
   // Keyed off `id` (not `slug`) so the canonical-slug redirect above
@@ -162,14 +187,32 @@ export default function ProductDetail() {
   // quantity picker or wishlist toggle the user just set.
   useEffect(() => {
     setQuantity(1);
-    setLiked(false);
     setCartMessage("");
   }, [id]);
+
+  const liked = isInWishlist(product?.id ?? id);
 
   // How many of this product are already in the bag — purely informational.
   const existingQuantity = (cartItems || [])
     .filter((item) => String(item.productId || item.product_id) === String(id))
     .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+
+  // Deal active hone par effective price/original price wahi logic
+  // follow karte hain jo DealDetailPage mein hai: current price =
+  // discounted deal price, original price = product ka asal price.
+  const numericProductPrice =
+    typeof product?.price === "number"
+      ? product.price
+      : parseFloat(String(product?.price).replace(/[^0-9.]/g, "")) || 0;
+
+  const effectivePrice = hasDeal ? Number(dealPriceParam) : product?.price;
+  const effectiveOriginalPrice = hasDeal ? numericProductPrice : product?.originalPrice;
+
+  // Wishlist hamesha "original" (non-discounted) price store karti hai —
+  // bilkul ProductCard ke handleToggleWishlist jaisa.
+  const wishlistOriginalPrice = hasDeal
+    ? numericProductPrice
+    : product?.originalPrice ?? numericProductPrice;
 
   const handleAddToCart = async () => {
     if (!product) return;
@@ -187,21 +230,48 @@ export default function ProductDetail() {
     // useCart's /cart/add mutation and the backend SQL treat it everywhere else.
     const ok = await addToCart(product.id, quantity, {
       name: product.name,
-      price:
-        typeof product.price === "number"
-          ? product.price
-          : parseFloat(String(product.price).replace(/[^0-9.]/g, "")) || 0,
+      price: hasDeal ? Number(dealPriceParam) : numericProductPrice,
       image: product.image || "",
+      // Deal se aaya hai to wahi fields jo DealDetailPage bhejta hai —
+      // taake cart/cart-dropdown mein deal badge sahi se render ho.
+      ...(hasDeal && {
+        dealId: dealId || undefined,
+        dealName,
+        originalPrice: numericProductPrice,
+      }),
     });
 
     if (ok) {
       setCartMessageTone("good");
       setCartMessage(`Added ${quantity} to your bag.`);
       setQuantity(1);
+      // Cart mein add ho gaya to wishlist se nikal do — bilkul ProductCard
+      // ke Quick Add jaisa behavior.
+      if (liked) {
+        removeFromWishlist(product.id);
+      }
     } else {
       setCartMessageTone("bad");
       setCartMessage("Something went wrong adding this to your bag. Please try again.");
     }
+  };
+
+  const handleToggleWishlist = async () => {
+    if (!product || isWishlistMutating) return;
+
+    if (!activeUserId) {
+      setCartMessageTone("bad");
+      setCartMessage("Please sign in to use your wishlist.");
+      setTimeout(() => navigate("/login"), 1000);
+      return;
+    }
+
+    await toggleWishlist(product.id, {
+      name: product.name,
+      price: wishlistOriginalPrice,
+      image: product.image,
+      ...(hasDeal && { dealId: dealId || undefined, dealName }),
+    });
   };
 
   if (loading) {
@@ -240,7 +310,7 @@ export default function ProductDetail() {
           ) : (
             <div className="flex h-full w-full items-center justify-center text-[#7E7E86]">No Image Available</div>
           )}
-          {product.badge && (
+          {product.badge && !hasDeal && (
             <div className="absolute left-4 top-4 bg-[#EDE6DA] px-3 py-1.5">
               <span className="text-[8px] font-medium tracking-[0.15em] text-[#432817] uppercase">
                 {product.badge}
@@ -251,6 +321,16 @@ export default function ProductDetail() {
 
         {/* Product Details */}
         <div className="flex flex-col justify-center">
+          {/* Deal badge — matches the dark pill used on DealDetailPage's ProductCard */}
+          {hasDeal && (
+            <div className="mb-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-[#432817] px-3 py-1.5">
+              <Tag size={11} strokeWidth={2} className="text-[#EDE6DA]" />
+              <span className="text-[9px] font-semibold tracking-[0.1em] text-[#EDE6DA] uppercase">
+                {dealName}
+              </span>
+            </div>
+          )}
+
           {(product.category || product.brand) && (
             <p className="mb-3 text-[10px] tracking-[0.25em] text-[#7E7E86] uppercase">
               {[product.category, product.brand].filter(Boolean).join(" · ")}
@@ -261,15 +341,15 @@ export default function ProductDetail() {
 
           <div className="mt-4 flex items-baseline gap-3">
             <p className="text-xl font-medium text-[#432817]">
-              {typeof product.price === "number" ? `$${product.price.toLocaleString()}` : product.price}
+              {typeof effectivePrice === "number" ? `$${effectivePrice.toLocaleString()}` : effectivePrice}
             </p>
-            {product.originalPrice && (
+            {effectiveOriginalPrice ? (
               <p className="text-sm text-[#7E7E86] line-through">
-                {typeof product.originalPrice === "number"
-                  ? `$${product.originalPrice.toLocaleString()}`
-                  : product.originalPrice}
+                {typeof effectiveOriginalPrice === "number"
+                  ? `$${effectiveOriginalPrice.toLocaleString()}`
+                  : effectiveOriginalPrice}
               </p>
-            )}
+            ) : null}
           </div>
 
           <div className="my-6 h-[1px] w-full bg-[#D1B79E]/40" />
@@ -336,9 +416,10 @@ export default function ProductDetail() {
 
             <button
               type="button"
-              onClick={() => setLiked((prev) => !prev)}
-              aria-label="Wishlist"
-              className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center border transition-all ${liked
+              onClick={handleToggleWishlist}
+              disabled={isWishlistMutating}
+              aria-label={liked ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`}
+              className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center border transition-all disabled:opacity-60 ${liked
                 ? "border-[#432817] bg-[#432817] text-[#EDE6DA]"
                 : "border-[#D1B79E] text-[#432817] hover:border-[#432817]"
                 }`}

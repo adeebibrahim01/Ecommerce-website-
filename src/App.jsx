@@ -20,7 +20,8 @@ import AdminLogin from "./pages/AdminLogin";
 import BrandProducts from "./pages/BrandProducts";
 import BrandsIndex from "./pages/BrandsIndex";
 import WishlistPage from "./pages/WishlistPage";
-
+import DealsPage from "./components/shop/Dealspage";
+import DealDetailPage from "./components/shop/DealDetailPage";
 function MainLayout({ children }) {
   return (
     <>
@@ -109,6 +110,32 @@ function App() {
         }
       />
 
+      {/* Deals — deals worker (GET /deals), discounts across products/categories/brands */}
+      {/* BUG FIX: this route used to sit bare at the bottom of the file with
+          no ProtectedRoute and no MainLayout — it rendered with no Navbar,
+          no Footer, and bypassed the auth guard every other page has. Moved
+          up next to its closest sibling (/sale) and wrapped to match. */}
+      <Route
+        path="/deals"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <DealsPage userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/deals/:id"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <DealDetailPage userId={userId} />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
       {/* New Arrivals — backend collection=new-in filter */}
       <Route
         path="/new-arrivals"

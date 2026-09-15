@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Heart, ShoppingBag, Trash2 } from "lucide-react";
+import { Heart, ShoppingBag, Trash2, Tag } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 export default function WishlistPreview({
@@ -82,8 +82,26 @@ export default function WishlistPreview({
                         {hasItems ? (
                             <div className="space-y-2">
                                 {wishlistItems.map((item, index) => {
+                                    // displayPrice = wohi price jo customer abhi pay karega.
+                                    // Deal/sale wale items mein asal (discounted) amount
+                                    // sale_price mein hoti hai — price field original
+                                    // amount rakhta hai, isliye sirf item.price se
+                                    // compare karne par original_price hamesha price
+                                    // ke barabar nikalta hai aur strikethrough kabhi
+                                    // nahi chalta. Isliye sale_price ko priority dena
+                                    // zaroori hai.
                                     const displayPrice = item.sale_price ?? item.price;
                                     const itemIsAdding = isAdding?.[item.id];
+                                    const fromDeal = !!item.deal_id;
+                                    // NOTE: original_price ab deal-based items ke alawa
+                                    // normal "sale_price" wale products (CategoryPage se) se
+                                    // bhi aa sakti hai — isliye ye check ab fromDeal par
+                                    // depend nahi karta, sirf original_price ki maujoodgi
+                                    // aur displayPrice se farq check karta hai.
+                                    const hasOriginalPrice =
+                                        item.original_price !== null &&
+                                        item.original_price !== undefined &&
+                                        Number(item.original_price) !== Number(displayPrice);
 
                                     return (
                                         <div
@@ -107,12 +125,25 @@ export default function WishlistPreview({
 
                                             {/* Product Info */}
                                             <div className="min-w-0 flex-1">
+                                                {fromDeal && (
+                                                    <span className="mb-0.5 inline-flex items-center gap-1 rounded-full bg-[#432817] px-1.5 py-0.5 text-[7px] font-semibold tracking-[0.06em] text-white uppercase">
+                                                        <Tag size={8} strokeWidth={1.8} />
+                                                        {item.deal_name || "Deal"}
+                                                    </span>
+                                                )}
                                                 <p className="truncate text-[9px] font-semibold tracking-[0.04em] text-[#432817]">
                                                     {item.name || "Unnamed Product"}
                                                 </p>
                                                 {displayPrice != null && (
-                                                    <p className="mt-1 text-[8px] text-[#8A8177]">
-                                                        ${Number(displayPrice).toLocaleString()}
+                                                    <p className="mt-1 flex items-center gap-1.5 text-[8px] text-[#8A8177]">
+                                                        <span className="font-medium text-[#977150]">
+                                                            ${Number(displayPrice).toLocaleString()}
+                                                        </span>
+                                                        {hasOriginalPrice && (
+                                                            <span className="text-[7px] text-[#8A8177] line-through">
+                                                                ${Number(item.original_price).toLocaleString()}
+                                                            </span>
+                                                        )}
                                                     </p>
                                                 )}
                                             </div>

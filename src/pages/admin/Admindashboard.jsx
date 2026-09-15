@@ -16,6 +16,7 @@ import {
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import AdminProducts from "./AdminProducts";
 import AdminBanners from "../../components/admin/AdminBanners";
+import AdminDeals from "./AdminDeals";
 const API_BASE_URL = "https://aurelia-admin-worker.adeebibrahim01.workers.dev";
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -340,7 +341,7 @@ export default function AdminDashboard() {
     const { admin, logout } = useAdminAuth();
     const navigate = useNavigate();
     const { toasts, push } = useToasts();
-const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "products" | "banners"
+    const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "products" | "banners" | "deals"
     const [stats, setStats] = useState(null);
 
     // ---- Users tab state ----
@@ -576,13 +577,17 @@ const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "pr
     };
 
     const pageTitle =
-        activeTab === "users" ? "The Member Registry" : activeTab === "orders" ? "The Order Ledger" : "The Product Catalog";
+        activeTab === "users" ? "The Member Registry" : activeTab === "orders" ? "The Order Ledger" : activeTab === "products" ? "The Product Catalog" : activeTab === "deals" ? "The Deals Desk" : "Banners";
     const pageSubtitle =
         activeTab === "users"
             ? "Every account that has ever signed in to AURELIA — verified through Google, or the long way, with a password and a code sent to their inbox."
             : activeTab === "orders"
                 ? "Every order placed and paid for on AURELIA. Open one to see exactly what the customer bought."
-                : "Every product listed on AURELIA. Add, edit, or retire pieces from the catalog.";
+                : activeTab === "products"
+                    ? "Every product listed on AURELIA. Add, edit, or retire pieces from the catalog."
+                    : activeTab === "deals"
+                        ? "Discounts running across AURELIA — by product, category, or brand."
+                        : "";
 
     return (
         <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
@@ -666,16 +671,25 @@ const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "pr
                         Products
                     </button>
                     <button
-    type="button"
-    onClick={() => setActiveTab("banners")}
-    className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${
-        activeTab === "banners"
-            ? "border-[#432817] text-[#432817]"
-            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
-    }`}
->
-    Banners
-</button>
+                        type="button"
+                        onClick={() => setActiveTab("deals")}
+                        className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "deals"
+                                ? "border-[#432817] text-[#432817]"
+                                : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            }`}
+                    >
+                        Deals
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("banners")}
+                        className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "banners"
+                                ? "border-[#432817] text-[#432817]"
+                                : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            }`}
+                    >
+                        Banners
+                    </button>
                 </div>
 
                 {activeTab === "users" ? (
@@ -960,10 +974,12 @@ const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "pr
                         </div>
                     </>
                 ) : activeTab === "products" ? (
-    <AdminProducts />
-) : (
-    <AdminBanners />
-)}
+                    <AdminProducts />
+                ) : activeTab === "deals" ? (
+                    <AdminDeals />
+                ) : (
+                    <AdminBanners />
+                )}
             </div>
         </main>
     );

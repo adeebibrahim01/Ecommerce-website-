@@ -20,7 +20,7 @@ function getStripe(env) {
 // Cart -> Order conversion (shared helper, /webhook/stripe se call hota hai)
 async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
   const { results: cartItems } = await db.prepare(`
-    SELECT product_id, name, price, image, quantity
+    SELECT product_id, name, price, image, quantity, deal_id, deal_name, original_price
     FROM cart WHERE user_id = ?
   `).bind(String(userId)).all();
 
@@ -42,9 +42,13 @@ async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
 
   const itemStatements = cartItems.map((item) =>
     db.prepare(`
-      INSERT INTO order_items (order_id, product_id, name, price, image, quantity, line_total)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(orderId, item.product_id, item.name, item.price, item.image, item.quantity, Number(item.price) * Number(item.quantity))
+      INSERT INTO order_items (order_id, product_id, name, price, image, quantity, line_total, deal_id, deal_name, original_price)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      orderId, item.product_id, item.name, item.price, item.image, item.quantity,
+      Number(item.price) * Number(item.quantity),
+      item.deal_id || null, item.deal_name || null, item.original_price || null
+    )
   );
 
   const deleteCartStatement = db.prepare(`DELETE FROM cart WHERE user_id = ?`).bind(String(userId));
@@ -53,7 +57,6 @@ async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
 
   return { id: orderId, orderNumber, subtotal, shipping: shippingCost, total, itemsCount: cartItems.length };
 }
-
 app.get('/', (c) => c.text('Cart Worker is live!'));
 
 // ---- CART ROUTES ----
@@ -61,32 +64,43 @@ app.get('/', (c) => c.text('Cart Worker is live!'));
 // 1. ADD / UPDATE CART ITEM ROUTE
 app.post('/cart/add', async (c) => {
   try {
-    const { userId, productId, quantity, name, price, image } = await c.req.json();
+    const { userId, productId, quantity, name, price, image, dealId, dealName, originalPrice } = await c.req.json();
     if (!userId || !productId) {
       return c.json({ success: false, error: "UserId and ProductId are required!" }, 400);
     }
     const qty = Number(quantity) !== 0 && Number.isFinite(Number(quantity)) ? Number(quantity) : 1;
     const productPrice = Number(price) || 0;
     const productImage = image || "";
+    const finalDealId = dealId ?? null;
+    const finalDealName = dealName ?? null;
+    const finalOriginalPrice =
+      originalPrice !== undefined && originalPrice !== null ? Number(originalPrice) : null;
     const db = c.env.DB;
 
     await db.prepare(`
-      INSERT INTO cart (user_id, product_id, quantity, name, price, image) 
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO cart (user_id, product_id, quantity, name, price, image, deal_id, deal_name, original_price) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, product_id) 
       DO UPDATE SET 
         quantity = cart.quantity + excluded.quantity,
         name = excluded.name,
         price = excluded.price,
-        image = excluded.image
-    `).bind(String(userId), String(productId), qty, name || "", productPrice, productImage).run();
+        image = excluded.image,
+        deal_id = excluded.deal_id,
+        deal_name = excluded.deal_name,
+        original_price = excluded.original_price
+    `).bind(
+      String(userId), String(productId), qty, name || "", productPrice, productImage,
+      finalDealId, finalDealName, finalOriginalPrice
+    ).run();
 
     await db.prepare(`
       DELETE FROM cart WHERE user_id = ? AND product_id = ? AND quantity <= 0
     `).bind(String(userId), String(productId)).run();
 
     const { results } = await db.prepare(`
-      SELECT product_id, quantity, user_id, name, price, image FROM cart WHERE user_id = ?
+      SELECT product_id, quantity, user_id, name, price, image, deal_id, deal_name, original_price
+      FROM cart WHERE user_id = ?
     `).bind(String(userId)).all();
 
     return c.json({ success: true, message: "Cart successfully updated!", items: results || [] });
@@ -103,7 +117,8 @@ app.get('/cart', async (c) => {
     if (!userId) return c.json({ success: false, error: "userId query parameter zaroori hai!" }, 400);
     const db = c.env.DB;
     const { results } = await db.prepare(`
-      SELECT product_id, quantity, user_id, name, price, image FROM cart WHERE user_id = ?
+      SELECT product_id, quantity, user_id, name, price, image, deal_id, deal_name, original_price
+      FROM cart WHERE user_id = ?
     `).bind(String(userId)).all();
     return c.json({ success: true, items: results || [] });
   } catch (error) {
@@ -128,14 +143,14 @@ app.delete('/cart/remove', async (c) => {
       .bind(String(userId), String(productId))
       .run();
     const { results } = await db.prepare(`
-      SELECT product_id, quantity, user_id, name, price, image FROM cart WHERE user_id = ?
+      SELECT product_id, quantity, user_id, name, price, image, deal_id, deal_name, original_price
+      FROM cart WHERE user_id = ?
     `).bind(String(userId)).all();
     return c.json({ success: true, message: "Item cart se remove ho gaya!", items: results || [] });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 500);
   }
 });
-
 // 4. GET CART COUNT ROUTE
 app.get('/cart/count', async (c) => {
   try {

@@ -145,61 +145,61 @@ app.get('/products', async (c) => {
         const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '24', 10)));
         const offset = (page - 1) * limit;
 
-const category = c.req.query('category');
-const brand = c.req.query('brand');
-const filterCategory = c.req.query('filterCategory');
-const type = c.req.query('type');
-const collection = c.req.query('collection');
+        const category = c.req.query('category');
+        const brand = c.req.query('brand');
+        const filterCategory = c.req.query('filterCategory');
+        const type = c.req.query('type');
+        const collection = c.req.query('collection');
 
-const isNewIn = c.req.query('is_new_in');
-const featured = c.req.query('featured');
-const bestseller = c.req.query('bestseller');
+        const isNewIn = c.req.query('is_new_in');
+        const featured = c.req.query('featured');
+        const bestseller = c.req.query('bestseller');
 
-const search = (c.req.query('search') || '').trim();
-const sort = c.req.query('sort') || 'newest';
+        const search = (c.req.query('search') || '').trim();
+        const sort = c.req.query('sort') || 'newest';
         const conditions = ["p.status = 'active'"];
         const bindings = [];
 
         if (category) { conditions.push('(cat.slug = ? OR cat.name = ?)'); bindings.push(category, category); }
         if (brand) { conditions.push('(b.slug = ? OR b.name = ?)'); bindings.push(brand, brand); }
         if (filterCategory) {
-    conditions.push('p.filter_category = ?');
-    bindings.push(filterCategory);
-}
+            conditions.push('p.filter_category = ?');
+            bindings.push(filterCategory);
+        }
 
-if (type) {
-    conditions.push('p.type = ?');
-    bindings.push(type);
-}
+        if (type) {
+            conditions.push('p.type = ?');
+            bindings.push(type);
+        }
 
-if (search) {
-    conditions.push('p.name LIKE ?');
-    bindings.push(`%${search}%`);
-}
+        if (search) {
+            conditions.push('p.name LIKE ?');
+            bindings.push(`%${search}%`);
+        }
 
-// Home page ke independent database filters
-if (isNewIn === '1') {
-    conditions.push('p.is_new_in = 1');
-}
+        // Home page ke independent database filters
+        if (isNewIn === '1') {
+            conditions.push('p.is_new_in = 1');
+        }
 
-if (featured === '1') {
-    conditions.push('p.featured = 1');
-}
+        if (featured === '1') {
+            conditions.push('p.featured = 1');
+        }
 
-if (bestseller === '1') {
-    conditions.push('p.bestseller = 1');
-}
+        if (bestseller === '1') {
+            conditions.push('p.bestseller = 1');
+        }
 
-// Existing collection filters
-if (collection === 'new-in') {
-    conditions.push('p.is_new_in = 1');
-} else if (collection === 'sale') {
-    conditions.push('p.is_on_sale = 1');
-} else if (collection === 'featured') {
-    conditions.push('p.featured = 1');
-} else if (collection === 'bestseller') {
-    conditions.push('p.bestseller = 1');
-}
+        // Existing collection filters
+        if (collection === 'new-in') {
+            conditions.push('p.is_new_in = 1');
+        } else if (collection === 'sale') {
+            conditions.push('p.is_on_sale = 1');
+        } else if (collection === 'featured') {
+            conditions.push('p.featured = 1');
+        } else if (collection === 'bestseller') {
+            conditions.push('p.bestseller = 1');
+        }
         const where = `WHERE ${conditions.join(' AND ')}`;
 
         const orderBy =
@@ -560,17 +560,59 @@ app.get('/wishlist', async (c) => {
 
     try {
         const { results } = await c.env.DB.prepare(
-            `SELECT w.id as wishlist_id, w.created_at as added_at,
-                    p.*, cat.name as category_name, b.name as brand_name
+            `SELECT w.id as wishlist_id, w.created_at as added_at, w.deal_id, w.deal_name,
+                    p.*, cat.name as category_name, b.name as brand_name,
+                    d.value as deal_value, d.type as deal_type
              FROM wishlist_items w
              JOIN products p ON p.id = w.product_id
              LEFT JOIN categories cat ON cat.id = p.category_id
              LEFT JOIN brands b ON b.id = p.brand_id
+             LEFT JOIN deals d ON d.id = w.deal_id
              WHERE w.user_id = ?
              ORDER BY w.created_at DESC`
         ).bind(userId).all();
 
-        return c.json({ success: true, wishlist: results });
+        // Deal wale items ke liye discounted price + original_price compute karo,
+        // kyunki wishlist_items table mein price store nahi hoti — hamesha
+        // products ka current price hi source of truth hai.
+        // deal_type: '%' = percentage discount, '$' = flat amount discount
+        const wishlist = results.map((item) => {
+            if (item.deal_id && item.deal_value != null) {
+                const basePrice = Number(item.price);
+                let discounted = basePrice;
+
+                if (item.deal_type === '%') {
+                    discounted = basePrice - (basePrice * Number(item.deal_value)) / 100;
+                } else if (item.deal_type === '$') {
+                    discounted = basePrice - Number(item.deal_value);
+                }
+
+                discounted = Math.max(0, Math.round(discounted * 100) / 100);
+
+                return {
+                    ...item,
+                    original_price: basePrice,
+                    sale_price: discounted,
+                };
+            }
+
+            // FIX: normal (non-deal) sale items — CategoryPage se wishlist mein
+            // aaye hue products bhi apni khud ki sale_price rakh sakte hain
+            // (products.sale_price column). Pehle in ke liye original_price
+            // kabhi set hi nahi hoti thi, isliye frontend pe strikethrough
+            // kabhi nahi chalta tha. Ab agar sale_price maujood hai aur price
+            // se alag hai, to original_price = price set kar dete hain.
+            if (item.sale_price != null && Number(item.sale_price) !== Number(item.price)) {
+                return {
+                    ...item,
+                    original_price: Number(item.price),
+                };
+            }
+
+            return item;
+        });
+
+        return c.json({ success: true, wishlist });
     } catch (error) {
         return c.json({ success: false, message: `Failed to load wishlist: ${error.message}` }, 500);
     }
@@ -578,16 +620,16 @@ app.get('/wishlist', async (c) => {
 
 app.post('/wishlist', async (c) => {
     try {
-        const { user_id, product_id } = await c.req.json();
+        const { user_id, product_id, deal_id, deal_name } = await c.req.json();
         if (!user_id || !product_id) {
             return c.json({ success: false, message: 'user_id aur product_id zaroori hain.' }, 400);
         }
 
-
         await c.env.DB.prepare(
-            `INSERT INTO wishlist_items (user_id, product_id) VALUES (?, ?)
+            `INSERT INTO wishlist_items (user_id, product_id, deal_id, deal_name)
+             VALUES (?, ?, ?, ?)
              ON CONFLICT(user_id, product_id) DO NOTHING`
-        ).bind(user_id, product_id).run();
+        ).bind(user_id, product_id, deal_id || null, deal_name || null).run();
 
         return c.json({ success: true, message: 'Product wishlist mein add ho gaya.' });
     } catch (error) {

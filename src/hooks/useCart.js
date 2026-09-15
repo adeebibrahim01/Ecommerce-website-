@@ -73,6 +73,14 @@ export function useCart(userId) {
       const productPrice = product?.price !== undefined && product?.price !== null ? Number(product.price) : 0;
       const productImage = product?.image || product?.img || product?.thumbnail || "";
 
+      // NEW — deal info, agar is add ka source koi deal hai
+      const dealId = product?.dealId ?? null;
+      const dealName = product?.dealName ?? null;
+      const originalPrice =
+        product?.originalPrice !== undefined && product?.originalPrice !== null
+          ? Number(product.originalPrice)
+          : null;
+
       const finalQuantity = resolveDelta(quantity);
 
       const payload = {
@@ -82,6 +90,9 @@ export function useCart(userId) {
         name: productName,
         price: productPrice,
         image: productImage,
+        dealId,          // NEW
+        dealName,         // NEW
+        originalPrice,    // NEW
       };
 
       const response = await fetch(`${API_BASE_URL}/cart/add`, {
@@ -91,7 +102,6 @@ export function useCart(userId) {
       });
 
       const resData = await response.json();
-
       if (!response.ok || !resData.success) {
         throw new Error(resData.error || "Failed to update cart");
       }
@@ -105,6 +115,14 @@ export function useCart(userId) {
       const productPrice = product?.price !== undefined && product?.price !== null ? Number(product.price) : 0;
       const productImage = product?.image || product?.img || product?.thumbnail || "";
 
+      // NEW
+      const dealId = product?.dealId ?? null;
+      const dealName = product?.dealName ?? null;
+      const originalPrice =
+        product?.originalPrice !== undefined && product?.originalPrice !== null
+          ? Number(product.originalPrice)
+          : null;
+
       const delta = resolveDelta(quantity);
 
       queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
@@ -114,14 +132,8 @@ export function useCart(userId) {
         );
 
         if (existingIndex > -1) {
-          const newQty = Math.max(
-            0,
-            Number(items[existingIndex].quantity || 0) + delta
-          );
-          items[existingIndex] = {
-            ...items[existingIndex],
-            quantity: newQty,
-          };
+          const newQty = Math.max(0, Number(items[existingIndex].quantity || 0) + delta);
+          items[existingIndex] = { ...items[existingIndex], quantity: newQty };
         } else if (delta > 0) {
           items.push({
             productId: String(productId),
@@ -130,14 +142,13 @@ export function useCart(userId) {
             name: productName,
             price: productPrice,
             image: productImage,
+            dealId,          // NEW
+            dealName,         // NEW
+            originalPrice,    // NEW
           });
         }
 
-        const totalQuantity = items.reduce(
-          (total, item) => total + Number(item.quantity || 0),
-          0
-        );
-
+        const totalQuantity = items.reduce((total, item) => total + Number(item.quantity || 0), 0);
         return { items, totalCount: totalQuantity };
       });
 
