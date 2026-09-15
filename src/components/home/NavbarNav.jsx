@@ -20,10 +20,6 @@ const navItems = [
     path: "/men",
   },
   {
-    label: "Collections",
-    path: "/collections",
-  },
-  {
     label: "Sale",
     path: "/sale",
   },
