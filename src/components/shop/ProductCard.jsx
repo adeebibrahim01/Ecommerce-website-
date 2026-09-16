@@ -135,21 +135,21 @@ export default function ProductCard({
       onClick={handleCardClick}
       className="group cursor-pointer"
     >
-      <div className="relative aspect-[3/4] overflow-hidden bg-[#D1B79E]/30">
-        {image ? (
-          <img
-            src={image}
-            alt={name}
-            loading="lazy"
-            className="h-full w-full object-cover transition duration-700 ease-out group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-[#D1B79E]/30">
-            <span className="text-[10px] tracking-[0.2em] text-[#7E7E86] uppercase">
-              No Image
-            </span>
-          </div>
-        )}
+     <div className="relative aspect-[4/5] overflow-hidden bg-[#D1B79E]/30">
+  {image ? (
+    <img
+      src={image}
+      alt={name}
+      loading="lazy"
+      className="h-full w-full object-cover object-top transition-transform duration-500 ease-out group-hover:scale-[1.04]"
+    />
+  ) : (
+    <div className="flex h-full w-full items-center justify-center bg-[#D1B79E]/30">
+      <span className="text-[10px] tracking-[0.2em] text-[#7E7E86] uppercase">
+        No Image
+      </span>
+    </div>
+  )}
 
         {badge && (
           <div className="absolute left-3 top-3 bg-[#EDE6DA] px-3 py-1.5">

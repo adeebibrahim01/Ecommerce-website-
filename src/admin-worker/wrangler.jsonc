@@ -9,9 +9,10 @@
     // 🔹 D1 DATABASE BINDING — customer worker jaisi hi same DB
     "d1_databases": [
         {
-            "binding": "DB",
-            "database_name": "aurelia-db",
-            "database_id": "06206881-6a36-494b-aacc-72d1aa2fabb8"
+             "binding": "DB",
+      "database_name": "aurelia-db",
+      "database_id": "06206881-6a36-494b-aacc-72d1aa2fabb8"
+    
         }
     ]
 }
