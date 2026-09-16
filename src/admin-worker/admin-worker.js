@@ -154,6 +154,42 @@ async function requireAdmin(c, next) {
     await next();
 }
 
+// ==========================================
+// DEAL LABEL HELPERS
+// Order items ke sath ready-made "70% OFF" / "$10 OFF" badge label
+// bhejne ke liye. deal_type/deal_value checkout ke waqt order_items
+// mein save hote hain (deals worker ki tarah wahi format). Agar
+// purana order hai jahan ye columns null hain, original_price vs
+// price se ek approximate % nikal lete hain taake badge phir bhi
+// dikh jaye.
+// ==========================================
+
+function dealLabel(type, value) {
+    if (!type || value === null || value === undefined) return null;
+    return type === '%' ? `${value}% OFF` : `$${value} OFF`;
+}
+
+function enrichOrderItem(item) {
+    // Sirf tab deal treat karo jab deal_id actually set ho — original_price
+    // column kabhi kabhi purane/stray data ki wajah se set hoti hai chahe
+    // koi deal na lagi ho, is liye sirf price-difference par bharosa nahi
+    // karte.
+    if (!item.deal_id) {
+        return { ...item, deal_label: null };
+    }
+
+    let label = dealLabel(item.deal_type, item.deal_value);
+
+    if (!label && item.original_price && Number(item.original_price) > Number(item.price)) {
+        const pct = Math.round(
+            ((Number(item.original_price) - Number(item.price)) / Number(item.original_price)) * 100
+        );
+        label = `${pct}% OFF`;
+    }
+
+    return { ...item, deal_label: label };
+}
+
 app.get('/', (c) => c.text('AURELIA Admin API is running smoothly.'));
 
 // ==========================================
@@ -336,9 +372,9 @@ app.get('/admin/orders', requireAdmin, async (c) => {
         const { results } = await c.env.DB.prepare(
             `SELECT o.id, o.order_number, o.user_id, o.subtotal, o.shipping, o.total,
               o.status, o.payment_method, o.created_at,
-              u.name as user_name, u.email as user_email
+              u.name AS user_name, u.email AS user_email, u.picture AS user_picture
        FROM orders o
-       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       LEFT JOIN users u ON u.public_id = o.user_id
        ${where}
        ORDER BY o.created_at DESC
        LIMIT ? OFFSET ?`
@@ -349,7 +385,7 @@ app.get('/admin/orders', requireAdmin, async (c) => {
         const totalRow = await c.env.DB.prepare(
             `SELECT COUNT(*) as count
        FROM orders o
-       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       LEFT JOIN users u ON u.public_id = o.user_id
        ${where}`
         )
             .bind(...bindings)
@@ -358,7 +394,7 @@ app.get('/admin/orders', requireAdmin, async (c) => {
         return c.json({ success: true, orders: results, total: totalRow?.count || 0, page, limit });
     } catch (error) {
         console.error('Admin orders list error:', error);
-        return c.json({ success: false, message: 'Failed to load orders.' }, 500);
+        return c.json({ success: false, message: error.message || 'Failed to load orders.', stack: error.stack }, 500);
     }
 });
 
@@ -369,9 +405,9 @@ app.get('/admin/orders/:id', requireAdmin, async (c) => {
         const order = await c.env.DB.prepare(
             `SELECT o.id, o.order_number, o.user_id, o.subtotal, o.shipping, o.total,
               o.status, o.payment_method, o.stripe_session_id, o.created_at,
-              u.name as user_name, u.email as user_email
+              u.name AS user_name, u.email AS user_email, u.picture AS user_picture
        FROM orders o
-       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       LEFT JOIN users u ON u.public_id = o.user_id
        WHERE o.id = ?`
         )
             .bind(orderId)
@@ -382,16 +418,17 @@ app.get('/admin/orders/:id', requireAdmin, async (c) => {
         }
 
         const { results: items } = await c.env.DB.prepare(
-            `SELECT id, product_id, name, price, image, quantity, line_total
+            `SELECT id, product_id, name, price, image, quantity, line_total,
+              deal_id, deal_name, original_price, deal_type, deal_value
        FROM order_items WHERE order_id = ?`
         )
             .bind(orderId)
             .all();
 
-        return c.json({ success: true, order, items: items || [] });
+        return c.json({ success: true, order, items: (items || []).map(enrichOrderItem) });
     } catch (error) {
         console.error('Admin order detail error:', error);
-        return c.json({ success: false, message: 'Failed to load order.' }, 500);
+        return c.json({ success: false, message: error.message || 'Failed to load order.', stack: error.stack }, 500);
     }
 });
 

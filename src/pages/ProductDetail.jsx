@@ -190,11 +190,17 @@ export default function ProductDetail() {
     setCartMessage("");
   }, [id]);
 
-  const liked = isInWishlist(product?.id ?? id);
+  const liked = isInWishlist(product?.id ?? id, hasDeal ? dealId : undefined);
 
   // How many of this product are already in the bag — purely informational.
   const existingQuantity = (cartItems || [])
-    .filter((item) => String(item.productId || item.product_id) === String(id))
+    .filter((item) => {
+      const sameProduct = String(item.productId || item.product_id) === String(id);
+      const sameDeal = hasDeal
+        ? String(item.dealId ?? item.deal_id ?? "") === String(dealId ?? "")
+        : !(item.dealId ?? item.deal_id);
+      return sameProduct && sameDeal;
+    })
     .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
   // Deal active hone par effective price/original price wahi logic
@@ -248,7 +254,7 @@ export default function ProductDetail() {
       // Cart mein add ho gaya to wishlist se nikal do — bilkul ProductCard
       // ke Quick Add jaisa behavior.
       if (liked) {
-        removeFromWishlist(product.id);
+        removeFromWishlist(product.id, hasDeal ? dealId : undefined);
       }
     } else {
       setCartMessageTone("bad");

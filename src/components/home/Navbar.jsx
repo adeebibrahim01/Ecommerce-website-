@@ -51,9 +51,12 @@ export default function Navbar() {
         name: item.name,
         price: item.sale_price ?? item.price,
         image: item.image,
+        dealId: item.deal_id ?? null,
+        dealName: item.deal_name ?? null,
+        originalPrice: item.original_price ?? null,
       });
       if (addedToCart) {
-        await removeFromWishlist(item.id);
+        await removeFromWishlist(item.id, item.deal_id);
       }
     } finally {
       setWishlistAddingMap((prev) => {

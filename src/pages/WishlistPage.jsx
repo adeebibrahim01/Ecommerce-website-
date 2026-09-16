@@ -58,10 +58,13 @@ export default function WishlistPage({ userId: userIdProp }) {
         }));
     }, [wishlistItems]);
 
-    const isProductInCart = (productId) => {
+    const isProductInCart = (productId, dealId) => {
         if (!cartItems) return false;
+        const normDeal = (v) => (v === undefined || v === null || v === "" ? "" : String(v));
         return cartItems.some(
-            (item) => String(item.product_id || item.productId) === String(productId)
+            (item) =>
+                String(item.product_id || item.productId) === String(productId) &&
+                normDeal(item.deal_id ?? item.dealId) === normDeal(dealId)
         );
     };
 
@@ -79,7 +82,7 @@ export default function WishlistPage({ userId: userIdProp }) {
             originalPrice: product.originalPrice ?? null,   // FIX: ye line add karo
         });
         if (success) {
-            await removeFromWishlist(product.id);
+            await removeFromWishlist(product.id, product.dealId);
         }
     };
 
@@ -208,7 +211,7 @@ export default function WishlistPage({ userId: userIdProp }) {
                                             image={product.image}
                                             category={product.type}
                                             badge={product.badge}
-                                            isInCart={isProductInCart(product.id)}
+                                            isInCart={isProductInCart(product.id, product.dealId)}
                                             onAddToCart={() => handleAddToCart(product)}
                                             isCartLoading={isCartLoading}
                                             dealId={product.dealId}

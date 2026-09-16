@@ -625,11 +625,16 @@ app.post('/wishlist', async (c) => {
             return c.json({ success: false, message: 'user_id aur product_id zaroori hain.' }, 400);
         }
 
+        // "" (not null) so it's a real, comparable value for the
+        // UNIQUE(user_id, product_id, deal_id) constraint — NULL never
+        // equals NULL in SQLite, which would break de-duping.
+        const finalDealId = deal_id !== undefined && deal_id !== null && deal_id !== "" ? String(deal_id) : "";
+
         await c.env.DB.prepare(
             `INSERT INTO wishlist_items (user_id, product_id, deal_id, deal_name)
              VALUES (?, ?, ?, ?)
-             ON CONFLICT(user_id, product_id) DO NOTHING`
-        ).bind(user_id, product_id, deal_id || null, deal_name || null).run();
+             ON CONFLICT(user_id, product_id, deal_id) DO NOTHING`
+        ).bind(user_id, product_id, finalDealId, deal_name || null).run();
 
         return c.json({ success: true, message: 'Product wishlist mein add ho gaya.' });
     } catch (error) {
@@ -641,11 +646,21 @@ app.delete('/wishlist/:productId', async (c) => {
     try {
         const productId = c.req.param('productId');
         const userId = c.req.query('user_id');
+        const dealId = c.req.query('deal_id');
         if (!userId) return c.json({ success: false, message: 'user_id zaroori hai.' }, 400);
 
-        await c.env.DB.prepare(
-            `DELETE FROM wishlist_items WHERE user_id = ? AND product_id = ?`
-        ).bind(userId, productId).run();
+        if (dealId !== undefined) {
+            // Caller knows exactly which line (deal or normal) to remove.
+            const finalDealId = dealId !== "" ? String(dealId) : "";
+            await c.env.DB.prepare(
+                `DELETE FROM wishlist_items WHERE user_id = ? AND product_id = ? AND deal_id = ?`
+            ).bind(userId, productId, finalDealId).run();
+        } else {
+            // Backward-compat: no deal_id passed, remove every line for this product.
+            await c.env.DB.prepare(
+                `DELETE FROM wishlist_items WHERE user_id = ? AND product_id = ?`
+            ).bind(userId, productId).run();
+        }
 
         return c.json({ success: true, message: 'Product wishlist se remove ho gaya.' });
     } catch (error) {

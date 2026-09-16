@@ -19,6 +19,7 @@ const navItems = [
     label: "Men",
     path: "/men",
   },
+ 
   {
     label: "Sale",
     path: "/sale",
@@ -26,6 +27,10 @@ const navItems = [
   {
     label: "Deals",
     path: "/deals",
+  },
+  {
+    label: "My Orders",
+    path: "/my-orders",
   },
 ];
 function BrandsDropdown({ onNavigate }) {

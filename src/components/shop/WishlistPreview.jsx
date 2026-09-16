@@ -25,7 +25,7 @@ export default function WishlistPreview({
     const handleDelete = (e, item) => {
         e.stopPropagation();
         if (onRemoveItem && item.id) {
-            onRemoveItem(item.id);
+            onRemoveItem(item.id, item.deal_id ?? "");
         }
     };
 
@@ -93,6 +93,7 @@ export default function WishlistPreview({
                                     const displayPrice = item.sale_price ?? item.price;
                                     const itemIsAdding = isAdding?.[item.id];
                                     const fromDeal = !!item.deal_id;
+                                    const itemKey = `${item.id}::${item.deal_id ?? ""}`;
                                     // NOTE: original_price ab deal-based items ke alawa
                                     // normal "sale_price" wale products (CategoryPage se) se
                                     // bhi aa sakti hai — isliye ye check ab fromDeal par
@@ -105,7 +106,7 @@ export default function WishlistPreview({
 
                                     return (
                                         <div
-                                            key={item.id || index}
+                                            key={itemKey || index}
                                             className="group/item flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-[#EDE6DA]"
                                         >
                                             {/* Product Image */}

@@ -31,7 +31,16 @@ export default function DealDetailPage({ userId: userIdProp }) {
     const { id } = useParams();
     const { user } = useAuth();
     const userId = userIdProp || user?.id;
-    const { cartItems, addToCart, isLoading: isCartLoading } = useCart(userId);
+    const { cartItems, addToCart, isLoading: isCartLoading, refreshCart } = useCart(userId);
+
+    // Cart ka cache staleTime 5 min hai — is page par fresh aate hi ek
+    // forced refetch kar lete hain taake "already in cart" status hamesha
+    // sahi ho, chahe cart kahin aur (Men/Women/Sale/New In) se update
+    // hua ho. Isse wahi product Deal page se dobara add nahi ho pata.
+    useEffect(() => {
+        if (userId) refreshCart();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId]);
 
     const [status, setStatus] = useState("loading"); // loading | ready | error | not-found
     const [error, setError] = useState("");
@@ -43,6 +52,15 @@ export default function DealDetailPage({ userId: userIdProp }) {
     useEffect(() => {
         const controller = new AbortController();
         let cancelled = false;
+
+        // Guard: agar route se koi valid `id` hi nahi mila (undefined/empty),
+        // to deals-worker ko fauji fetch bhejne ki zaroorat nahi — seedha
+        // "not found" dikha do. Pehle yeh guard nahi tha, isliye kabhi
+        // browser console mein `/deals/undefined` ka 404 dikh jata tha.
+        if (!id) {
+            setStatus("not-found");
+            return;
+        }
 
         async function load() {
             setStatus("loading");
@@ -90,6 +108,12 @@ export default function DealDetailPage({ userId: userIdProp }) {
         }
         if (!product?.id) return;
 
+        // Defense-in-depth: agar yehi DEAL line already cart mein ja chuki
+        // hai to dobara add na ho (button already disabled hota hai
+        // isAddedLocal se, yeh extra guard hai). Isi product ki NORMAL
+        // (non-deal) cart line ise block nahi karti — wo alag line hai.
+        if (isProductInCart(product.id, deal.id)) return;
+
         await addToCart(product.id, 1, {
             name: product.name,
             price: product.price,          // discounted price
@@ -100,10 +124,13 @@ export default function DealDetailPage({ userId: userIdProp }) {
         });
     };
 
-    const isProductInCart = (productId) => {
+    const isProductInCart = (productId, dealId) => {
         if (!cartItems) return false;
+        const normDeal = (v) => (v === undefined || v === null || v === "" ? "" : String(v));
         return cartItems.some(
-            (item) => String(item.product_id || item.productId) === String(productId)
+            (item) =>
+                String(item.product_id || item.productId) === String(productId) &&
+                normDeal(item.deal_id ?? item.dealId) === normDeal(dealId)
         );
     };
 
@@ -241,7 +268,7 @@ export default function DealDetailPage({ userId: userIdProp }) {
                                                 image={cardProduct.image}
                                                 category={cardProduct.type}
                                                 badge={hasDiscount ? `Was ${formatMoney(originalPrice)}` : cardProduct.badge}
-                                                isInCart={isProductInCart(cardProduct.id)}
+                                                isInCart={isProductInCart(cardProduct.id, deal.id)}
                                                 onAddToCart={() => handleAddToCart(cardProduct)}
                                                 isCartLoading={isCartLoading}
                                                 dealId={deal.id}
