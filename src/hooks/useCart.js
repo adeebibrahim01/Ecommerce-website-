@@ -67,6 +67,14 @@ export function useCart(userId) {
     return Number.isFinite(raw) && raw !== 0 ? raw : 1;
   };
 
+  // "" for no-deal so a normal add and a deal add of the same product
+  // never get treated as the same cart line (mirrors the backend's
+  // deal_id normalization in cart-worker.js).
+  const normDeal = (v) => (v === undefined || v === null || v === "" ? "" : String(v));
+  const isSameLine = (item, productId, dealId) =>
+    String(item.productId ?? item.product_id) === String(productId) &&
+    normDeal(item.dealId ?? item.deal_id) === normDeal(dealId);
+
   const addToCartMutation = useMutation({
     mutationFn: async ({ productId, quantity, product }) => {
       const productName = product?.name || product?.title || `Product #${productId}`;
@@ -127,9 +135,7 @@ export function useCart(userId) {
 
       queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
         const items = [...(old.items || [])];
-        const existingIndex = items.findIndex(
-          (item) => String(item.productId || item.product_id) === String(productId)
-        );
+        const existingIndex = items.findIndex((item) => isSameLine(item, productId, dealId));
 
         if (existingIndex > -1) {
           const newQty = Math.max(0, Number(items[existingIndex].quantity || 0) + delta);
@@ -179,11 +185,11 @@ export function useCart(userId) {
   |--------------------------------------------------------------------------
   */
   const removeFromCartMutation = useMutation({
-    mutationFn: async (productId) => {
+    mutationFn: async ({ productId, dealId }) => {
       const response = await fetch(`${API_BASE_URL}/cart/remove`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, productId: String(productId) }),
+        body: JSON.stringify({ userId, productId: String(productId), dealId: dealId ?? "" }),
       });
 
       const resData = await response.json();
@@ -192,14 +198,12 @@ export function useCart(userId) {
       }
       return resData;
     },
-    onMutate: async (productId) => {
+    onMutate: async ({ productId, dealId }) => {
       await queryClient.cancelQueries({ queryKey });
       const previousCart = queryClient.getQueryData(queryKey);
 
       queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
-        const items = (old.items || []).filter(
-          (item) => String(item.productId || item.product_id) !== String(productId)
-        );
+        const items = (old.items || []).filter((item) => !isSameLine(item, productId, dealId));
 
         const totalQuantity = items.reduce(
           (total, item) => total + Number(item.quantity || 0),
@@ -211,7 +215,7 @@ export function useCart(userId) {
 
       return { previousCart };
     },
-    onError: (err, productId, context) => {
+    onError: (err, variables, context) => {
       if (context?.previousCart) {
         queryClient.setQueryData(queryKey, context.previousCart);
       }
@@ -269,10 +273,12 @@ export function useCart(userId) {
     }
   };
 
-  const removeFromCart = async (productId) => {
+  // Pass dealId when removing a deal line so only that specific line goes
+  // away — leave it undefined only for old call sites that predate deals.
+  const removeFromCart = async (productId, dealId) => {
     if (!userId || !productId) return false;
     try {
-      await removeFromCartMutation.mutateAsync(productId);
+      await removeFromCartMutation.mutateAsync({ productId, dealId });
       return true;
     } catch {
       return false;

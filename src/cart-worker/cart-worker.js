@@ -71,7 +71,10 @@ app.post('/cart/add', async (c) => {
     const qty = Number(quantity) !== 0 && Number.isFinite(Number(quantity)) ? Number(quantity) : 1;
     const productPrice = Number(price) || 0;
     const productImage = image || "";
-    const finalDealId = dealId ?? null;
+    // "" (not null) means "no deal" — deal_id has to be a real, comparable
+    // value for the UNIQUE(user_id, product_id, deal_id) constraint below
+    // to actually dedupe/merge repeat adds; NULL never equals NULL in SQLite.
+    const finalDealId = dealId !== undefined && dealId !== null && dealId !== "" ? String(dealId) : "";
     const finalDealName = dealName ?? null;
     const finalOriginalPrice =
       originalPrice !== undefined && originalPrice !== null ? Number(originalPrice) : null;
@@ -80,13 +83,12 @@ app.post('/cart/add', async (c) => {
     await db.prepare(`
       INSERT INTO cart (user_id, product_id, quantity, name, price, image, deal_id, deal_name, original_price) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(user_id, product_id) 
+      ON CONFLICT(user_id, product_id, deal_id) 
       DO UPDATE SET 
         quantity = cart.quantity + excluded.quantity,
         name = excluded.name,
         price = excluded.price,
         image = excluded.image,
-        deal_id = excluded.deal_id,
         deal_name = excluded.deal_name,
         original_price = excluded.original_price
     `).bind(
@@ -95,8 +97,8 @@ app.post('/cart/add', async (c) => {
     ).run();
 
     await db.prepare(`
-      DELETE FROM cart WHERE user_id = ? AND product_id = ? AND quantity <= 0
-    `).bind(String(userId), String(productId)).run();
+      DELETE FROM cart WHERE user_id = ? AND product_id = ? AND deal_id = ? AND quantity <= 0
+    `).bind(String(userId), String(productId), finalDealId).run();
 
     const { results } = await db.prepare(`
       SELECT product_id, quantity, user_id, name, price, image, deal_id, deal_name, original_price
@@ -134,14 +136,23 @@ app.get('/cart', async (c) => {
 // chahe baaki products DB mein mojood hi kyun na hon.
 app.delete('/cart/remove', async (c) => {
   try {
-    const { userId, productId } = await c.req.json();
+    const { userId, productId, dealId } = await c.req.json();
     if (!userId || !productId) {
       return c.json({ success: false, error: "userId aur productId zaroori hain!" }, 400);
     }
     const db = c.env.DB;
-    await db.prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ?")
-      .bind(String(userId), String(productId))
-      .run();
+    if (dealId !== undefined) {
+      // Caller knows exactly which line (deal or normal) to remove.
+      const finalDealId = dealId !== null && dealId !== "" ? String(dealId) : "";
+      await db.prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ? AND deal_id = ?")
+        .bind(String(userId), String(productId), finalDealId)
+        .run();
+    } else {
+      // Backward-compat: no dealId passed, remove every line for this product.
+      await db.prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ?")
+        .bind(String(userId), String(productId))
+        .run();
+    }
     const { results } = await db.prepare(`
       SELECT product_id, quantity, user_id, name, price, image, deal_id, deal_name, original_price
       FROM cart WHERE user_id = ?

@@ -15,7 +15,12 @@ export default function CartPage() {
   const [checkoutError, setCheckoutError] = useState("");
   const [localItems, setLocalItems] = useState([]);
 
-  // Per-item pending lock (Set of product_ids currently being updated).
+  // A product can now have BOTH a normal line and a deal line in the cart
+  // at once, so product_id alone no longer uniquely identifies a row —
+  // use product_id + deal_id together everywhere below.
+  const lineKey = (item) => `${item.product_id}::${item.deal_id || ""}`;
+
+  // Per-item pending lock (Set of line keys currently being updated).
   const [pendingIds, setPendingIds] = useState(() => new Set());
 
   const addPending = useCallback((id) => {
@@ -49,13 +54,14 @@ export default function CartPage() {
   }, [localItems]);
 
   const handleRemove = useCallback(
-    async (productId) => {
-      addPending(productId);
-      setLocalItems((prev) => prev.filter((i) => i.product_id !== productId));
+    async (item) => {
+      const key = lineKey(item);
+      addPending(key);
+      setLocalItems((prev) => prev.filter((i) => lineKey(i) !== key));
       try {
-        await removeFromCart(productId);
+        await removeFromCart(item.product_id, item.deal_id || "");
       } finally {
-        removePending(productId);
+        removePending(key);
       }
     },
     [removeFromCart, addPending, removePending]
@@ -63,12 +69,11 @@ export default function CartPage() {
 
   const handleIncrease = useCallback(
     async (item) => {
-      addPending(item.product_id);
+      const key = lineKey(item);
+      addPending(key);
 
       setLocalItems((prev) =>
-        prev.map((i) =>
-          i.product_id === item.product_id ? { ...i, quantity: i.quantity + 1 } : i
-        )
+        prev.map((i) => (lineKey(i) === key ? { ...i, quantity: i.quantity + 1 } : i))
       );
 
       try {
@@ -79,14 +84,14 @@ export default function CartPage() {
           name: item.name,
           price: item.price,
           image: item.image,
-          dealId: item.deal_id ?? null,
+          dealId: item.deal_id || "",
           dealName: item.deal_name ?? null,
           originalPrice: item.original_price ?? null,
         });
       } catch (error) {
         console.error("Failed to increase quantity", error);
       } finally {
-        removePending(item.product_id);
+        removePending(key);
       }
     },
     [addToCart, addPending, removePending]
@@ -95,16 +100,15 @@ export default function CartPage() {
   const handleDecrease = useCallback(
     async (item) => {
       if (item.quantity <= 1) {
-        handleRemove(item.product_id);
+        handleRemove(item);
         return;
       }
 
-      addPending(item.product_id);
+      const key = lineKey(item);
+      addPending(key);
 
       setLocalItems((prev) =>
-        prev.map((i) =>
-          i.product_id === item.product_id ? { ...i, quantity: i.quantity - 1 } : i
-        )
+        prev.map((i) => (lineKey(i) === key ? { ...i, quantity: i.quantity - 1 } : i))
       );
 
       try {
@@ -112,14 +116,14 @@ export default function CartPage() {
           name: item.name,
           price: item.price,
           image: item.image,
-          dealId: item.deal_id ?? null,
+          dealId: item.deal_id || "",
           dealName: item.deal_name ?? null,
           originalPrice: item.original_price ?? null,
         });
       } catch (error) {
         console.error("Failed to decrease quantity", error);
       } finally {
-        removePending(item.product_id);
+        removePending(key);
       }
     },
     [addToCart, addPending, removePending, handleRemove]
@@ -174,7 +178,7 @@ export default function CartPage() {
           <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-4">
               {localItems.map((item) => {
-                const isPending = pendingIds.has(item.product_id);
+                const isPending = pendingIds.has(lineKey(item));
                 const fromDeal = !!item.deal_id;
                 // NOTE: original_price ab deal-based items ke alawa normal
                 // "sale_price" wale products (CategoryPage se) se bhi aa
@@ -188,7 +192,7 @@ export default function CartPage() {
 
                 return (
                   <div
-                    key={item.product_id}
+                    key={lineKey(item)}
                     className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#D1B79E]/40 pb-4 bg-white/40 p-4 rounded-xl transition-all ${isPending ? "opacity-60" : ""
                       }`}
                   >
@@ -251,7 +255,7 @@ export default function CartPage() {
                       </p>
 
                       <button
-                        onClick={() => handleRemove(item.product_id)}
+                        onClick={() => handleRemove(item)}
                         disabled={isPending}
                         className="text-[#8A8177] hover:text-red-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label="Remove item"

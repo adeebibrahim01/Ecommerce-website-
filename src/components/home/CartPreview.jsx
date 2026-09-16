@@ -31,7 +31,7 @@ export default function CartPreview({
     e.stopPropagation();
     const targetId = item.productId || item.product_id || item.id;
     if (onRemoveItem && targetId) {
-      onRemoveItem(targetId);
+      onRemoveItem(targetId, item.dealId ?? item.deal_id ?? "");
     }
   };
 
@@ -83,6 +83,7 @@ export default function CartPreview({
                 {cartItems.map((item, index) => {
                   const itemId = item.productId || item.product_id || item.id;
                   const fromDeal = !!item.deal_id;
+                  const itemKey = `${itemId}::${item.dealId ?? item.deal_id ?? ""}`;
                   // NOTE: original_price ab deal-based items ke alawa
                   // normal "sale_price" wale products (CategoryPage se) se
                   // bhi aa sakti hai — isliye ye check ab fromDeal par
@@ -95,7 +96,7 @@ export default function CartPreview({
 
                   return (
                     <div
-                      key={itemId || index}
+                      key={itemKey || index}
                       className="group/item flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-[#EDE6DA]"
                     >
                       {/* Product Image */}

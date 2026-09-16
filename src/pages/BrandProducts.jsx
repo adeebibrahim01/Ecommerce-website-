@@ -184,8 +184,12 @@ export default function BrandProducts({ userId: userIdProp }) {
 
     const isProductInCart = (productId) => {
         if (!cartItems) return false;
+        // Deal-only cart line shouldn't disable the plain add-to-cart button
+        // here — only a normal (non-deal) line counts as already added.
         return cartItems.some(
-            (item) => String(item.product_id || item.productId) === String(productId)
+            (item) =>
+                String(item.product_id || item.productId) === String(productId) &&
+                !(item.deal_id || item.dealId)
         );
     };
 
