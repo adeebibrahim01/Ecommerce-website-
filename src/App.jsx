@@ -22,6 +22,7 @@ import BrandsIndex from "./pages/BrandsIndex";
 import WishlistPage from "./pages/WishlistPage";
 import DealsPage from "./components/shop/Dealspage";
 import DealDetailPage from "./components/shop/DealDetailPage";
+import MyOrders from "./pages/MyOrders";
 function MainLayout({ children }) {
   return (
     <>
@@ -72,6 +73,27 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+<Route
+  path="/my-orders"
+  element={
+    <ProtectedRoute>
+      <MainLayout>
+        <MyOrders />
+      </MainLayout>
+    </ProtectedRoute>
+  }
+/>
+<Route
+  path="/my-orders/:orderId"
+  element={
+    <ProtectedRoute>
+      <MainLayout>
+        <MyOrders />
+      </MainLayout>
+    </ProtectedRoute>
+  }
+/>
 
       <Route
         path="/Accessories"

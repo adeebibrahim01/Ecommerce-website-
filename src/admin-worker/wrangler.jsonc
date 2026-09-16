@@ -6,9 +6,6 @@
     "compatibility_flags": [
         "nodejs_compat"
     ],
-    "vars": {
-        "ADMIN_JWT_SECRET": "super_secret_admin_jwt_key_aurelia_2026_diff"
-    },
     // 🔹 D1 DATABASE BINDING — customer worker jaisi hi same DB
     "d1_databases": [
         {

@@ -10,6 +10,7 @@ import {
     ChevronDown,
     ShieldAlert,
     Package,
+    Tag,
 } from "lucide-react";
 
 
@@ -213,6 +214,19 @@ function ConfirmPopover({ request, onConfirm, onCancel }) {
 // Order detail popover — shows an order's line items
 // ─────────────────────────────────────────────────────────────
 
+// Small "UP TO 70% OFF" / "$10 OFF" pill — mirrors the deal_label the
+// admin worker already computes (deal_type+deal_value, or a computed
+// % fallback for older orders that predate those columns).
+function DealBadge({ label }) {
+    if (!label) return null;
+    return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-[#A78361] bg-[#432817]/[0.06] px-2 py-0.5 text-[9px] font-medium tracking-[0.06em] text-[#8C5A2B]">
+            <Tag size={9} strokeWidth={2} />
+            {label}
+        </span>
+    );
+}
+
 function OrderDetailPopover({ order, items, loading, onClose }) {
     if (!order) return null;
     return (
@@ -255,30 +269,60 @@ function OrderDetailPopover({ order, items, loading, onClose }) {
                         <p className="text-xs text-[#7E7E86]">No items found for this order.</p>
                     ) : (
                         <div className="divide-y divide-[#D1B79E]/40">
-                            {items.map((item) => (
-                                <div key={item.id} className="flex items-center gap-3 py-3">
-                                    {item.image ? (
-                                        <img
-                                            src={item.image}
-                                            alt={item.name}
-                                            className="h-10 w-10 shrink-0 rounded-sm object-cover"
-                                        />
-                                    ) : (
-                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-[#D1B79E]/40">
-                                            <Package size={14} className="text-[#7E7E86]" />
+                            {items.map((item) => {
+                                // Strikethrough/deal-name sirf tab dikhao jab
+                                // deal_id actually maujood ho — original_price
+                                // column kabhi kabhi stray/purane data ki
+                                // wajah se set hoti hai chahe koi deal na lagi
+                                // ho, sirf price-difference par bharosa nahi
+                                // karte.
+                                const hadDeal =
+                                    item.deal_id != null &&
+                                    item.original_price != null &&
+                                    Number(item.original_price) > Number(item.price);
+                                return (
+                                    <div key={item.id} className="flex items-center gap-3 py-3">
+                                        {item.image ? (
+                                            <img
+                                                src={item.image}
+                                                alt={item.name}
+                                                className="h-10 w-10 shrink-0 rounded-sm object-cover"
+                                            />
+                                        ) : (
+                                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-[#D1B79E]/40">
+                                                <Package size={14} className="text-[#7E7E86]" />
+                                            </div>
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <p className="truncate text-xs font-medium text-[#432817]">{item.name}</p>
+                                                <DealBadge label={item.deal_label} />
+                                            </div>
+                                            <p className="mt-0.5 text-[10px] text-[#7E7E86]">
+                                                {item.quantity} ×{" "}
+                                                {hadDeal ? (
+                                                    <>
+                                                        <span className="line-through text-[#a89b8c]">
+                                                            {money(item.original_price)}
+                                                        </span>{" "}
+                                                        <span className="font-medium text-[#432817]">{money(item.price)}</span>
+                                                    </>
+                                                ) : (
+                                                    money(item.price)
+                                                )}
+                                            </p>
+                                            {item.deal_name && (
+                                                <p className="mt-0.5 text-[10px] italic text-[#977150]">
+                                                    Deal: {item.deal_name}
+                                                </p>
+                                            )}
                                         </div>
-                                    )}
-                                    <div className="min-w-0 flex-1">
-                                        <p className="truncate text-xs font-medium text-[#432817]">{item.name}</p>
-                                        <p className="text-[10px] text-[#7E7E86]">
-                                            {item.quantity} × {money(item.price)}
-                                        </p>
+                                        <span className="shrink-0 text-xs font-medium text-[#432817]">
+                                            {money(item.line_total)}
+                                        </span>
                                     </div>
-                                    <span className="shrink-0 text-xs font-medium text-[#432817]">
-                                        {money(item.line_total)}
-                                    </span>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>

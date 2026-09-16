@@ -20,8 +20,12 @@ function getStripe(env) {
 // Cart -> Order conversion (shared helper, /webhook/stripe se call hota hai)
 async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
   const { results: cartItems } = await db.prepare(`
-    SELECT product_id, name, price, image, quantity, deal_id, deal_name, original_price
-    FROM cart WHERE user_id = ?
+    SELECT c.product_id, c.name, c.price, c.image, c.quantity,
+           c.deal_id, c.deal_name, c.original_price,
+           d.type AS deal_type, d.value AS deal_value
+    FROM cart c
+    LEFT JOIN deals d ON d.id = CAST(NULLIF(c.deal_id, '') AS INTEGER)
+    WHERE c.user_id = ?
   `).bind(String(userId)).all();
 
   if (!cartItems || cartItems.length === 0) return null;
@@ -42,12 +46,13 @@ async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
 
   const itemStatements = cartItems.map((item) =>
     db.prepare(`
-      INSERT INTO order_items (order_id, product_id, name, price, image, quantity, line_total, deal_id, deal_name, original_price)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO order_items (order_id, product_id, name, price, image, quantity, line_total, deal_id, deal_name, original_price, deal_type, deal_value)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       orderId, item.product_id, item.name, item.price, item.image, item.quantity,
       Number(item.price) * Number(item.quantity),
-      item.deal_id || null, item.deal_name || null, item.original_price || null
+      item.deal_id || null, item.deal_name || null, item.original_price || null,
+      item.deal_type || null, item.deal_value || null
     )
   );
 
