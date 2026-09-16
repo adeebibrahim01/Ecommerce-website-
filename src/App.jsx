@@ -13,7 +13,7 @@ import CartPage from "./pages/cartpage";
 import ProductDetail from "./pages/ProductDetail";
 import LoginSuccess from "./pages/LoginSuccess";
 import Signup from "./pages/Signup";
-import VerifyEmail from "./pages/VerifyEmail";
+import VerifyEmail from "./pages/Verifyemail";
 import AdminRoute from "./components/auth/AdminRoute";
 import AdminDashboard from "./pages/admin/Admindashboard";
 import AdminLogin from "./pages/AdminLogin";

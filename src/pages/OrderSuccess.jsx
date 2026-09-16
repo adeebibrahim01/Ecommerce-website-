@@ -71,10 +71,10 @@ export default function OrderSuccess() {
                             Order #{order?.order_number} — ${Number(order?.total).toLocaleString()}
                         </p>
                         <button
-                            onClick={() => navigate("/")}
+                            onClick={() => navigate("/my-orders")}
                             className="mt-6 w-full rounded-none bg-[#432817] py-2.5 text-[10px] font-medium tracking-[0.2em] text-white uppercase hover:bg-[#977150]"
                         >
-                            Back to Home
+                            Check Order details
                         </button>
                     </>
                 )}
