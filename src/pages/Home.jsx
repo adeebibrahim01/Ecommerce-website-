@@ -260,9 +260,50 @@ export default function Home({ userId: userIdProp }) {
   const featuredQuery = useProductCollection("featured");
   const bestsellerQuery = useProductCollection("bestseller");
 
-  const isProductInCart = useMemo(() => {
-    const ids = new Set(
-      (cartItems || []).map((item) => String(item.product_id || item.productId))
+          setBestSellerProducts(
+            bestsellerRows.map(normalizeProduct)
+          );
+        }
+      )
+      .catch((err) => {
+        if (cancelled) return;
+
+        if (err.name === "AbortError") return;
+
+        console.error(
+          "Home products fetch error:",
+          err
+        );
+
+        setLoadError(
+          err.message ||
+          "Failed to load products."
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+
+        setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
+  // ==========================================
+  // CART HELPERS
+  // ==========================================
+
+  const isProductInCart = (productId) => {
+    if (!cartItems) return false;
+    // Deal-only cart line shouldn't disable the plain add-to-cart button
+    // here — only a normal (non-deal) line counts as already added.
+    return cartItems.some(
+      (item) =>
+        String(item.product_id || item.productId) === String(productId) &&
+        !(item.deal_id || item.dealId)
     );
     return (productId) => ids.has(String(productId));
   }, [cartItems]);
