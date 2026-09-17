@@ -9,7 +9,6 @@
   "vars": {
     "FRONTEND_URL": "http://localhost:5173",
     "GOOGLE_CLIENT_ID": "256054170428-g0qst426uecglv0odu9vvh6d0k2d0f9r.apps.googleusercontent.com",
-    "JWT_SECRET": "super_secret_jwt_key_aurelia_2026"
   },
 
   // 🔹 D1 DATABASE BINDING

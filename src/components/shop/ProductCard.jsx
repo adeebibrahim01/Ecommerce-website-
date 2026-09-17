@@ -32,8 +32,11 @@ export default function ProductCard({
   const cartData = queryClient.getQueryData(queryKey) || { items: [] };
   const cachedItems = cartData.items || [];
 
+  const normDeal = (v) => (v === undefined || v === null || v === "" ? "" : String(v));
   const isCachedInCart = cachedItems.some(
-    (item) => String(item.productId || item.product_id) === String(id)
+    (item) =>
+      String(item.productId || item.product_id) === String(id) &&
+      normDeal(item.dealId ?? item.deal_id) === normDeal(dealId)
   );
 
   const isAddedLocal = isCachedInCart || isInCart;
@@ -41,7 +44,7 @@ export default function ProductCard({
   const { isInWishlist, toggleWishlist, removeFromWishlist, isMutating: isWishlistMutating } =
     useWishlist(activeUserId);
 
-  const liked = isInWishlist(id);
+  const liked = isInWishlist(id, dealId);
 
   const formattedPrice =
     typeof price === "number" ? `$${price.toLocaleString()}` : price;
@@ -97,7 +100,7 @@ export default function ProductCard({
       await onAddToCart(id);
       // Cart mein add hone ke baad, agar yeh wishlist mein tha to nikal do
       if (liked) {
-        await removeFromWishlist(id);
+        await removeFromWishlist(id, dealId);
       }
     } catch (error) {
       console.error("Quick add error:", error);

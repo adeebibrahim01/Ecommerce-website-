@@ -16,6 +16,15 @@ const PRODUCT_API_BASE =
   import.meta.env.VITE_PRODUCT_API_URL ||
   "https://product-worker-service.adeebibrahim01.workers.dev";
 
+// Har home collection (New Arrivals / Bestseller / Featured) mein
+// kitne products dikhane hain.
+const PRODUCTS_PER_COLLECTION = 12;
+
+// Per-card stagger delay for the entrance animation — capped so a
+// 12-item grid doesn't take forever to finish revealing.
+const CARD_STAGGER_MS = 45;
+const CARD_STAGGER_MAX_MS = 480;
+
 // ==========================================
 // PRODUCT API
 // ==========================================
@@ -23,7 +32,7 @@ const PRODUCT_API_BASE =
 async function fetchProductsByFilter(filter, signal) {
   const params = new URLSearchParams({
     page: "1",
-    limit: "4",
+    limit: String(PRODUCTS_PER_COLLECTION),
     [filter]: "1",
   });
 
@@ -91,9 +100,9 @@ function ProductCardSkeleton() {
 
 // ==========================================
 // SCROLL REVEAL (one orchestrated moment per
-// section, not per-card — fires once, respects
-// reduced-motion, and never blocks content if
-// IntersectionObserver is unavailable)
+// section — fires once, respects reduced-motion,
+// and never blocks content if IntersectionObserver
+// is unavailable)
 // ==========================================
 
 function useSectionReveal() {
@@ -135,7 +144,7 @@ function useSectionReveal() {
 
 function useProductCollection(filterKey) {
   return useQuery({
-    queryKey: ["home-products", filterKey],
+    queryKey: ["home-products", filterKey, PRODUCTS_PER_COLLECTION],
     queryFn: ({ signal }) => fetchProductsByFilter(filterKey, signal),
     staleTime: 5 * 60 * 1000, // 5 min — collections don't churn every page view
     gcTime: 30 * 60 * 1000,
@@ -146,12 +155,49 @@ function useProductCollection(filterKey) {
 }
 
 // ==========================================
+// VIEW ALL LINK
+// Animated arrow instead of a static "->" glyph —
+// it only moves in response to the person's hover.
+// ==========================================
+
+function ViewAllLink({ href, className = "" }) {
+  return (
+    <a
+      href={href}
+      className={`group/link inline-flex items-center gap-1.5 border-b border-[#432817] pb-1 text-[10px] font-medium tracking-[0.2em] uppercase transition-colors duration-300 hover:text-[#977150] hover:border-[#977150] ${className}`}
+    >
+      View all
+      <svg
+        width="11"
+        height="11"
+        viewBox="0 0 14 14"
+        fill="none"
+        className="shrink-0 transition-transform duration-300 ease-out group-hover/link:translate-x-1"
+      >
+        <path
+          d="M5 2.5L10 7L5 11.5"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </a>
+  );
+}
+
+// ==========================================
 // REUSABLE COLLECTION SECTION
 // Replaces three near-identical JSX blocks.
 // Owns its own loading/error/empty states so
 // each collection can recover independently —
 // a failed "Bestseller" fetch no longer has to
 // wait on or affect "Featured".
+//
+// Reveal sequence (once per section, on scroll-in):
+// 1. headline wipes into view (clip-path uncover)
+// 2. the "View all" link fades in slightly after
+// 3. cards cascade in with a short stagger
 // ==========================================
 
 function ProductSection({
@@ -167,32 +213,37 @@ function ProductSection({
   const { data: products, isLoading, isError, error, refetch, isFetching } = query;
 
   return (
-    <section
-      ref={ref}
-      className={`px-5 py-20 transition-opacity duration-700 ease-out sm:px-8 md:px-12 lg:px-16 ${
-        visible ? "opacity-100" : "opacity-0"
-      }`}
-    >
+    <section ref={ref} className="px-5 py-20 sm:px-8 md:px-12 lg:px-16">
       <div className="mx-auto max-w-7xl">
         <div className="mb-10 flex items-end justify-between">
           <div>
-            <p className="mb-3 text-[10px] font-medium tracking-[0.3em] text-[#977150] uppercase">
+            <p
+              className={`mb-3 text-[10px] font-medium tracking-[0.3em] text-[#977150] uppercase transition-opacity duration-500 ${visible ? "opacity-100" : "opacity-0"
+                }`}
+            >
               {eyebrow}
             </p>
-            <h2 className="font-serif text-4xl leading-none sm:text-5xl">{title}</h2>
+            <h2
+              className="font-serif text-4xl leading-none sm:text-5xl"
+              style={{
+                clipPath: visible ? "inset(0 0 0 0)" : "inset(0 100% 0 0)",
+                transition: "clip-path 850ms cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
+            >
+              {title}
+            </h2>
           </div>
 
-          <a
+          <ViewAllLink
             href={viewAllHref}
-            className="hidden border-b border-[#432817] pb-1 text-[10px] font-medium tracking-[0.2em] uppercase transition hover:text-[#977150] sm:block"
-          >
-            View all
-          </a>
+            className={`hidden transition-opacity duration-500 delay-200 sm:block ${visible ? "opacity-100" : "opacity-0"
+              }`}
+          />
         </div>
 
         {isLoading ? (
           <div className="grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
+            {Array.from({ length: PRODUCTS_PER_COLLECTION }).map((_, i) => (
               <ProductCardSkeleton key={i} />
             ))}
           </div>
@@ -214,31 +265,41 @@ function ProductSection({
           <p className="text-xs text-[#7E7E86]">Nothing here yet — check back soon.</p>
         ) : (
           <div className="grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 lg:grid-cols-4">
-            {products.map((product) => (
-              <ProductCard
+            {products.map((product, i) => (
+              <div
                 key={product.id}
-                id={product.id}
-                name={product.name}
-                price={product.price}
-                image={product.image}
-                category={product.type}
-                badge={product.badge}
-                isInCart={isProductInCart(product.id)}
-                onAddToCart={() => onAddToCart(product)}
-                isCartLoading={isCartLoading}
-                originalPrice={product.isOnSale ? product.originalPrice : null}
-              />
+                className="group/tile transition-transform duration-300 ease-out will-change-transform hover:-translate-y-1.5 hover:drop-shadow-xl"
+                style={{
+                  opacity: visible ? 1 : 0,
+                  transform: visible ? "translateY(0)" : "translateY(18px)",
+                  transition: `opacity 550ms ease-out ${Math.min(
+                    i * CARD_STAGGER_MS,
+                    CARD_STAGGER_MAX_MS
+                  )}ms, transform 550ms ease-out ${Math.min(
+                    i * CARD_STAGGER_MS,
+                    CARD_STAGGER_MAX_MS
+                  )}ms`,
+                }}
+              >
+                <ProductCard
+                  id={product.id}
+                  name={product.name}
+                  price={product.price}
+                  image={product.image}
+                  category={product.type}
+                  badge={product.badge}
+                  isInCart={isProductInCart(product.id)}
+                  onAddToCart={() => onAddToCart(product)}
+                  isCartLoading={isCartLoading}
+                  originalPrice={product.isOnSale ? product.originalPrice : null}
+                />
+              </div>
             ))}
           </div>
         )}
 
         <div className="mt-10 text-center sm:hidden">
-          <a
-            href={viewAllHref}
-            className="border-b border-[#432817] pb-1 text-[10px] font-medium tracking-[0.2em] uppercase"
-          >
-            View all
-          </a>
+          <ViewAllLink href={viewAllHref} className="justify-center" />
         </div>
       </div>
     </section>
@@ -260,38 +321,6 @@ export default function Home({ userId: userIdProp }) {
   const featuredQuery = useProductCollection("featured");
   const bestsellerQuery = useProductCollection("bestseller");
 
-          setBestSellerProducts(
-            bestsellerRows.map(normalizeProduct)
-          );
-        }
-      )
-      .catch((err) => {
-        if (cancelled) return;
-
-        if (err.name === "AbortError") return;
-
-        console.error(
-          "Home products fetch error:",
-          err
-        );
-
-        setLoadError(
-          err.message ||
-          "Failed to load products."
-        );
-      })
-      .finally(() => {
-        if (cancelled) return;
-
-        setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, []);
-
   // ==========================================
   // CART HELPERS
   // ==========================================
@@ -305,8 +334,7 @@ export default function Home({ userId: userIdProp }) {
         String(item.product_id || item.productId) === String(productId) &&
         !(item.deal_id || item.dealId)
     );
-    return (productId) => ids.has(String(productId));
-  }, [cartItems]);
+  };
 
   const handleAddToCart = async (product) => {
     if (!product?.id) return;
@@ -353,9 +381,9 @@ export default function Home({ userId: userIdProp }) {
             background-image: none;
           }
 
-          section[class*="transition-opacity"] {
-            transition: none !important;
-            opacity: 1 !important;
+          * {
+            transition-duration: 0.01ms !important;
+            animation-duration: 0.01ms !important;
           }
         }
       `}</style>

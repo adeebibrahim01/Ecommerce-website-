@@ -6,6 +6,14 @@ export function useWishlist(userId) {
     const queryClient = useQueryClient();
     const queryKey = ["wishlist", userId];
 
+    // "" for no-deal, mirrors the backend's deal_id normalization in
+    // product-worker.js, so a normal wishlist line and a deal wishlist
+    // line of the same product are never treated as the same entry.
+    const normDeal = (v) => (v === undefined || v === null || v === "" ? "" : String(v));
+    const isSameLine = (item, productId, dealId) =>
+        String(item.id ?? item.product_id) === String(productId) &&
+        normDeal(item.dealId ?? item.deal_id) === normDeal(dealId);
+
     const {
         data = { items: [], totalCount: 0 },
         isLoading,
@@ -67,8 +75,8 @@ export function useWishlist(userId) {
             const previousWishlist = queryClient.getQueryData(queryKey);
 
             queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
-                const alreadyExists = (old.items || []).some(
-                    (item) => String(item.id) === String(productId)
+                const alreadyExists = (old.items || []).some((item) =>
+                    isSameLine(item, productId, product?.dealId)
                 );
                 if (alreadyExists) return old;
 
@@ -113,9 +121,10 @@ export function useWishlist(userId) {
     });
 
     const removeFromWishlistMutation = useMutation({
-        mutationFn: async (productId) => {
+        mutationFn: async ({ productId, dealId }) => {
+            const params = new URLSearchParams({ user_id: userId, deal_id: dealId ?? "" });
             const response = await fetch(
-                `${API_BASE_URL}/wishlist/${productId}?user_id=${encodeURIComponent(userId)}`,
+                `${API_BASE_URL}/wishlist/${productId}?${params.toString()}`,
                 { method: "DELETE" }
             );
 
@@ -126,20 +135,18 @@ export function useWishlist(userId) {
             return resData;
 
         },
-        onMutate: async (productId) => {
+        onMutate: async ({ productId, dealId }) => {
             await queryClient.cancelQueries({ queryKey });
             const previousWishlist = queryClient.getQueryData(queryKey);
 
             queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
-                const items = (old.items || []).filter(
-                    (item) => String(item.id) !== String(productId)
-                );
+                const items = (old.items || []).filter((item) => !isSameLine(item, productId, dealId));
                 return { items, totalCount: items.length };
             });
 
             return { previousWishlist };
         },
-        onError: (err, productId, context) => {
+        onError: (err, variables, context) => {
             if (context?.previousWishlist) {
                 queryClient.setQueryData(queryKey, context.previousWishlist);
             }
@@ -153,8 +160,8 @@ export function useWishlist(userId) {
         },
     });
 
-    const isInWishlist = (productId) =>
-        (data.items || []).some((item) => String(item.id) === String(productId));
+    const isInWishlist = (productId, dealId) =>
+        (data.items || []).some((item) => isSameLine(item, productId, dealId));
 
     const addToWishlist = async (productId, product = {}) => {
         if (!userId || !productId) return false;
@@ -167,10 +174,12 @@ export function useWishlist(userId) {
         }
     };
 
-    const removeFromWishlist = async (productId) => {
+    // Pass dealId when removing a deal line so only that specific line
+    // goes away — leave it undefined only for old call sites that predate deals.
+    const removeFromWishlist = async (productId, dealId) => {
         if (!userId || !productId) return false;
         try {
-            await removeFromWishlistMutation.mutateAsync(productId);
+            await removeFromWishlistMutation.mutateAsync({ productId, dealId });
             return true;
         } catch {
             return false;
@@ -178,8 +187,8 @@ export function useWishlist(userId) {
     };
 
     const toggleWishlist = async (productId, product = {}) => {
-        return isInWishlist(productId)
-            ? removeFromWishlist(productId)
+        return isInWishlist(productId, product?.dealId)
+            ? removeFromWishlist(productId, product?.dealId)
             : addToWishlist(productId, product);
     };
 

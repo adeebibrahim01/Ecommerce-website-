@@ -138,6 +138,7 @@ const safeUser = (user) => ({
   picture: user.picture,
   role: user.role,
   is_verified: !!user.is_verified,
+  loyalty_points: user.loyalty_points || 0,   // NEW
 });
 
 // ==========================================
@@ -450,7 +451,7 @@ app.get('/auth/me', async (c) => {
     }
 
     const user = await c.env.DB.prepare(
-      'SELECT id, google_id, email, name, picture, role, is_verified, status, public_id FROM users WHERE id = ?'
+      'SELECT id, google_id, email, name, picture, role, is_verified, status, public_id, loyalty_points FROM users WHERE id = ?'
     )
       .bind(userId)
       .first();
@@ -585,6 +586,128 @@ app.post('/auth/logout', (c) => {
 });
 
 // ==========================================
+// DEAL LABEL HELPERS
+// Order items ke sath ready-made "70% OFF" / "$10 OFF" badge label
+// bhejne ke liye. Agar purana order hai jahan deal_type/deal_value
+// null hain, original_price vs price se approximate % nikal lete hain.
+// ==========================================
+
+function dealLabel(type, value) {
+  if (!type || value === null || value === undefined) return null;
+  return type === '%' ? `${value}% OFF` : `$${value} OFF`;
+}
+
+function enrichOrderItem(item) {
+  if (!item.deal_id) {
+    return { ...item, deal_label: null };
+  }
+
+  let label = dealLabel(item.deal_type, item.deal_value);
+
+  if (!label && item.original_price && Number(item.original_price) > Number(item.price)) {
+    const pct = Math.round(
+      ((Number(item.original_price) - Number(item.price)) / Number(item.original_price)) * 100
+    );
+    label = `${pct}% OFF`;
+  }
+
+  return { ...item, deal_label: label };
+}
+
+// ==========================================
+// CUSTOMER — MY ORDERS
+// orders.user_id string ke tor par store hota hai (String(internal id)) —
+// cart/checkout worker isi tarah insert karta hai. getUserIdFromAuth()
+// token se internal id verify karta hai; yahan query se koi userId lena
+// khatarnak hoga (koi bhi apna token bhej kar dusre ka userId query mein
+// daal kar uske orders dekh sakta tha).
+// ==========================================
+
+// ==========================================
+// CUSTOMER — MY ORDERS  (FIXED: match orders.user_id against public_id, not internal id)
+// ==========================================
+
+app.get('/orders', async (c) => {
+  const userId = await getUserIdFromAuth(c);
+  if (!userId) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+
+  try {
+    if (!c.env.DB) {
+      return c.json({ success: false, message: 'Database connection missing.' }, 500);
+    }
+
+    // orders.user_id checkout worker se public_id (UUID) ke tor par save
+    // hota hai, internal integer id ke tor par nahi — isliye pehle token
+    // ke userId (internal) se public_id nikalo, phir wahi bind karo.
+    const userRow = await c.env.DB.prepare('SELECT public_id FROM users WHERE id = ?')
+      .bind(userId)
+      .first();
+
+    if (!userRow) {
+      return c.json({ success: false, message: 'User not found.' }, 404);
+    }
+
+    const { results } = await c.env.DB.prepare(`
+      SELECT id, order_number, subtotal, shipping, total, status, payment_method, created_at,
+             discount_amount, points_redeemed, coupon_code, coupon_discount
+      FROM orders
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `).bind(userRow.public_id).all();
+
+    return c.json({ success: true, orders: results || [] });
+  } catch (error) {
+    console.error('My orders list error:', error);
+    return c.json({ success: false, message: 'Failed to load orders.' }, 500);
+  }
+});
+
+app.get('/orders/:id', async (c) => {
+  const userId = await getUserIdFromAuth(c);
+  if (!userId) {
+    return c.json({ success: false, message: 'Unauthorized' }, 401);
+  }
+
+  try {
+    if (!c.env.DB) {
+      return c.json({ success: false, message: 'Database connection missing.' }, 500);
+    }
+
+    const userRow = await c.env.DB.prepare('SELECT public_id FROM users WHERE id = ?')
+      .bind(userId)
+      .first();
+
+    if (!userRow) {
+      return c.json({ success: false, message: 'User not found.' }, 404);
+    }
+
+    const orderId = c.req.param('id');
+
+    const order = await c.env.DB.prepare(`
+      SELECT id, order_number, subtotal, shipping, total, status, payment_method, created_at,
+             discount_amount, points_redeemed, coupon_code, coupon_discount
+      FROM orders WHERE id = ? AND user_id = ?
+    `).bind(orderId, userRow.public_id).first();
+
+    if (!order) {
+      return c.json({ success: false, message: 'Order not found.' }, 404);
+    }
+
+    const { results: items } = await c.env.DB.prepare(`
+      SELECT id, product_id, name, price, image, quantity, line_total,
+             deal_id, deal_name, original_price, deal_type, deal_value
+      FROM order_items WHERE order_id = ?
+    `).bind(order.id).all();
+
+    return c.json({ success: true, order, items: (items || []).map(enrichOrderItem) });
+  } catch (error) {
+    console.error('My order detail error:', error);
+    return c.json({ success: false, message: 'Failed to load order.' }, 500);
+  }
+});
+// ==========================================
 // ADMIN PORTAL APIS  (all guarded by requireAdmin)
 // ==========================================
 
@@ -703,7 +826,7 @@ app.get('/admin/orders', requireAdmin, async (c) => {
               o.status, o.payment_method, o.created_at,
               u.name as user_name, u.email as user_email
        FROM orders o
-       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       LEFT JOIN users u ON u.public_id = o.user_id
        ${where}
        ORDER BY o.created_at DESC
        LIMIT ? OFFSET ?`
@@ -714,7 +837,7 @@ app.get('/admin/orders', requireAdmin, async (c) => {
     const totalRow = await c.env.DB.prepare(
       `SELECT COUNT(*) as count
        FROM orders o
-       LEFT JOIN users u ON CAST(u.id AS TEXT) = o.user_id
+       LEFT JOIN users u ON u.public_id = o.user_id
        ${where}`
     )
       .bind(...bindings)
