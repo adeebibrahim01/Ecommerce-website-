@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import {
     Search,
     X,
@@ -13,12 +14,14 @@ import {
     Tag,
 } from "lucide-react";
 
-
+import AdminLoyalty from "./AdminLoyalty";
 import { useAdminAuth } from "../../hooks/useAdminAuth";
 import AdminProducts from "./AdminProducts";
 import AdminBanners from "../../components/admin/AdminBanners";
 import AdminDeals from "./AdminDeals";
+import AdminCoupons from "./AdminCoupons";
 const API_BASE_URL = "https://aurelia-admin-worker.adeebibrahim01.workers.dev";
+
 const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -336,6 +339,18 @@ function OrderDetailPopover({ order, items, loading, onClose }) {
                         <span>Shipping</span>
                         <span>{money(order.shipping)}</span>
                     </div>
+                    {Number(order.discount_amount) > 0 && (
+                        <div className="flex justify-between text-[#6B7A5E]">
+                            <span>Points discount</span>
+                            <span>-{money(order.discount_amount)}</span>
+                        </div>
+                    )}
+                    {order.coupon_code && Number(order.coupon_discount) > 0 && (
+                        <div className="flex justify-between text-[#6B7A5E]">
+                            <span>Coupon ({order.coupon_code})</span>
+                            <span>-{money(order.coupon_discount)}</span>
+                        </div>
+                    )}
                     <div className="flex justify-between font-medium text-[#432817]">
                         <span>Total</span>
                         <span>{money(order.total)}</span>
@@ -385,7 +400,7 @@ export default function AdminDashboard() {
     const { admin, logout } = useAdminAuth();
     const navigate = useNavigate();
     const { toasts, push } = useToasts();
-    const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "products" | "banners" | "deals"
+    const [activeTab, setActiveTab] = useState("users"); // "users" | "orders" | "products" | "banners" | "deals" | "coupons" | "loyalty"
     const [stats, setStats] = useState(null);
 
     // ---- Users tab state ----
@@ -621,7 +636,7 @@ export default function AdminDashboard() {
     };
 
     const pageTitle =
-        activeTab === "users" ? "The Member Registry" : activeTab === "orders" ? "The Order Ledger" : activeTab === "products" ? "The Product Catalog" : activeTab === "deals" ? "The Deals Desk" : "Banners";
+        activeTab === "users" ? "The Member Registry" : activeTab === "orders" ? "The Order Ledger" : activeTab === "products" ? "The Product Catalog" : activeTab === "deals" ? "The Deals Desk" : activeTab === "coupons" ? "Coupon Codes" : "Banners";
     const pageSubtitle =
         activeTab === "users"
             ? "Every account that has ever signed in to AURELIA — verified through Google, or the long way, with a password and a code sent to their inbox."
@@ -631,7 +646,9 @@ export default function AdminDashboard() {
                     ? "Every product listed on AURELIA. Add, edit, or retire pieces from the catalog."
                     : activeTab === "deals"
                         ? "Discounts running across AURELIA — by product, category, or brand."
-                        : "";
+                        : activeTab === "coupons"
+                            ? "Promo codes customers can apply at checkout — one-time, dated, or capped."
+                            : "";
 
     return (
         <main className="min-h-screen bg-[#EDE6DA] text-[#432817]">
@@ -718,21 +735,41 @@ export default function AdminDashboard() {
                         type="button"
                         onClick={() => setActiveTab("deals")}
                         className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "deals"
-                                ? "border-[#432817] text-[#432817]"
-                                : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            ? "border-[#432817] text-[#432817]"
+                            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
                             }`}
                     >
                         Deals
                     </button>
                     <button
                         type="button"
+                        onClick={() => setActiveTab("coupons")}
+                        className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "coupons"
+                            ? "border-[#432817] text-[#432817]"
+                            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            }`}
+                    >
+                        Coupons
+                    </button>
+                    <button
+                        type="button"
                         onClick={() => setActiveTab("banners")}
                         className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "banners"
-                                ? "border-[#432817] text-[#432817]"
-                                : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            ? "border-[#432817] text-[#432817]"
+                            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
                             }`}
                     >
                         Banners
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("loyalty")}
+                        className={`-mb-px border-b-2 px-1 pb-3 text-[10px] font-medium tracking-[0.18em] uppercase transition-colors ${activeTab === "loyalty"
+                            ? "border-[#432817] text-[#432817]"
+                            : "border-transparent text-[#7E7E86] hover:text-[#432817]"
+                            }`}
+                    >
+                        Loyalty
                     </button>
                 </div>
 
@@ -1021,9 +1058,16 @@ export default function AdminDashboard() {
                     <AdminProducts />
                 ) : activeTab === "deals" ? (
                     <AdminDeals />
+                ) : activeTab === "coupons" ? (
+                    <AdminCoupons />
+                ) : activeTab === "loyalty" ? (
+                    <AdminLoyalty />
                 ) : (
+
                     <AdminBanners />
-                )}
+                )
+
+                }
             </div>
         </main>
     );

@@ -206,6 +206,20 @@ function OrderDetail({ orderId, onBack }) {
           <span>Shipping</span>
           <span>${Number(order.shipping).toFixed(2)}</span>
         </div>
+        {Number(order.discount_amount) > 0 && (
+          <div className="flex justify-between text-[#6B7A5E]">
+            <span>Points discount</span>
+            <span>-${Number(order.discount_amount).toFixed(2)}</span>
+          </div>
+        )}
+        {order.coupon_code && Number(order.coupon_discount) > 0 && (
+          <div className="flex justify-between text-[#6B7A5E]">
+            <span className="flex items-center gap-1">
+              <Tag size={11} /> Coupon ({order.coupon_code})
+            </span>
+            <span>-${Number(order.coupon_discount).toFixed(2)}</span>
+          </div>
+        )}
         <div className="mt-2 flex justify-between border-t border-[#D1B79E] pt-2 font-serif text-base">
           <span>Total</span>
           <span>${Number(order.total).toFixed(2)}</span>

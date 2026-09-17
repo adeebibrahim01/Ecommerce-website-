@@ -138,6 +138,7 @@ const safeUser = (user) => ({
   picture: user.picture,
   role: user.role,
   is_verified: !!user.is_verified,
+  loyalty_points: user.loyalty_points || 0,   // NEW
 });
 
 // ==========================================
@@ -450,7 +451,7 @@ app.get('/auth/me', async (c) => {
     }
 
     const user = await c.env.DB.prepare(
-      'SELECT id, google_id, email, name, picture, role, is_verified, status, public_id FROM users WHERE id = ?'
+      'SELECT id, google_id, email, name, picture, role, is_verified, status, public_id, loyalty_points FROM users WHERE id = ?'
     )
       .bind(userId)
       .first();
@@ -649,7 +650,8 @@ app.get('/orders', async (c) => {
     }
 
     const { results } = await c.env.DB.prepare(`
-      SELECT id, order_number, subtotal, shipping, total, status, payment_method, created_at
+      SELECT id, order_number, subtotal, shipping, total, status, payment_method, created_at,
+             discount_amount, points_redeemed, coupon_code, coupon_discount
       FROM orders
       WHERE user_id = ?
       ORDER BY created_at DESC
@@ -684,7 +686,8 @@ app.get('/orders/:id', async (c) => {
     const orderId = c.req.param('id');
 
     const order = await c.env.DB.prepare(`
-      SELECT id, order_number, subtotal, shipping, total, status, payment_method, created_at
+      SELECT id, order_number, subtotal, shipping, total, status, payment_method, created_at,
+             discount_amount, points_redeemed, coupon_code, coupon_discount
       FROM orders WHERE id = ? AND user_id = ?
     `).bind(orderId, userRow.public_id).first();
 
@@ -818,7 +821,7 @@ app.get('/admin/orders', requireAdmin, async (c) => {
       : '';
     const bindings = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
 
-      const { results } = await c.env.DB.prepare(
+    const { results } = await c.env.DB.prepare(
       `SELECT o.id, o.order_number, o.user_id, o.subtotal, o.shipping, o.total,
               o.status, o.payment_method, o.created_at,
               u.name as user_name, u.email as user_email

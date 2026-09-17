@@ -13,12 +13,95 @@ app.use('/*', cors({
 function getStripe(env) {
   return new Stripe(env.STRIPE_SECRET_KEY, {
     apiVersion: '2024-06-20',
-    httpClient: Stripe.createFetchHttpClient(), // Cloudflare Workers ke liye zaroori
+    httpClient: Stripe.createFetchHttpClient(),
   });
 }
 
+// ---- LOYALTY HELPERS ----
+
+async function getLoyaltySettings(db) {
+  const settings = await db.prepare('SELECT * FROM loyalty_settings WHERE id = 1').first();
+  return settings || {
+    earn_rate: 10, redeem_rate: 100, min_redeem_points: 200, max_redeem_percent: 50, is_enabled: 1,
+  };
+}
+
+// cart/orders sirf public_id (UUID) jaante hain — loyalty ka internal id + balance yahan se milta hai
+async function getUserRowByPublicId(db, publicId) {
+  return db.prepare('SELECT id, loyalty_points FROM users WHERE public_id = ?').bind(String(publicId)).first();
+}
+
+// ---- COUPON HELPERS ----
+
+async function findCouponByCode(db, code) {
+  if (!code) return null;
+  return db.prepare('SELECT * FROM coupons WHERE code = ? COLLATE NOCASE').bind(String(code).trim()).first();
+}
+
+async function countUserCouponUsage(db, couponId, userId) {
+  const row = await db.prepare(
+    'SELECT COUNT(*) as count FROM coupon_usages WHERE coupon_id = ? AND user_id = ?'
+  ).bind(couponId, String(userId)).first();
+  return row?.count || 0;
+}
+
+// Fixed-amount ya percentage discount, subtotal aur (agar set ho) max_discount_amount
+// dono se clamp hota hai — kabhi bhi subtotal sa zyada discount nahi milta.
+function computeCouponDiscount(coupon, subtotal) {
+  let discount = coupon.type === '%'
+    ? (subtotal * Number(coupon.value)) / 100
+    : Number(coupon.value);
+
+  if (coupon.max_discount_amount !== null && coupon.max_discount_amount !== undefined) {
+    discount = Math.min(discount, Number(coupon.max_discount_amount));
+  }
+  discount = Math.min(discount, subtotal);
+  return Math.max(0, Math.round(discount * 100) / 100);
+}
+
+// Saari PRD 3.4 validation rules is exact order mein: exists -> active ->
+// date window -> min order -> total limit -> per-user limit.
+async function validateCoupon(db, code, userId, subtotal) {
+  const coupon = await findCouponByCode(db, code);
+  if (!coupon) {
+    return { valid: false, error: 'Ye coupon code exist nahi karta.' };
+  }
+  if (coupon.status !== 'active') {
+    return { valid: false, error: 'Ye coupon filhal active nahi hai.' };
+  }
+
+  const now = new Date();
+  if (coupon.starts_at && now < new Date(coupon.starts_at)) {
+    return { valid: false, error: 'Ye coupon abhi shuru nahi hua.' };
+  }
+  if (coupon.expires_at && now > new Date(coupon.expires_at)) {
+    return { valid: false, error: 'Ye coupon expire ho chuka hai.' };
+  }
+
+  if (Number(coupon.min_order_amount) > 0 && subtotal < Number(coupon.min_order_amount)) {
+    return {
+      valid: false,
+      error: `Is coupon k liye kam se kam $${Number(coupon.min_order_amount).toFixed(2)} ka order chahiye.`,
+    };
+  }
+
+  if (coupon.usage_limit !== null && coupon.usage_limit !== undefined && Number(coupon.used_count) >= Number(coupon.usage_limit)) {
+    return { valid: false, error: 'Ye coupon apni usage limit tak pohanch chuka hai.' };
+  }
+
+  if (coupon.per_user_limit !== null && coupon.per_user_limit !== undefined) {
+    const usedByUser = await countUserCouponUsage(db, coupon.id, userId);
+    if (usedByUser >= Number(coupon.per_user_limit)) {
+      return { valid: false, error: 'Aap ye coupon pehle hi zyada se zyada dafa use kar chuke hain.' };
+    }
+  }
+
+  const discount = computeCouponDiscount(coupon, subtotal);
+  return { valid: true, coupon, discount };
+}
+
 // Cart -> Order conversion (shared helper, /webhook/stripe se call hota hai)
-async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
+async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId, redeemPoints = 0, couponCode = null) {
   const { results: cartItems } = await db.prepare(`
     SELECT c.product_id, c.name, c.price, c.image, c.quantity,
            c.deal_id, c.deal_name, c.original_price,
@@ -34,13 +117,56 @@ async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
     (sum, item) => sum + Number(item.price) * Number(item.quantity), 0
   );
   const shippingCost = subtotal > 0 ? 10.0 : 0;
-  const total = subtotal + shippingCost;
+
+  // ---- Loyalty: redeem (agar requested) + earn on final paid amount ----
+  const settings = await getLoyaltySettings(db);
+  const userRow = await getUserRowByPublicId(db, userId);
+
+  let loyaltyDiscount = 0;
+  let actualRedeemed = 0;
+  const currentBalance = userRow ? Number(userRow.loyalty_points) || 0 : 0;
+
+  // ---- Coupon: authoritative re-validation, race-condition safe (jaisa loyalty ke sath hota hai) ----
+  let appliedCoupon = null;
+  let couponDiscount = 0;
+
+  if (couponCode) {
+    // Coupon aur points redeem mutually exclusive hain — coupon priority leta hai
+    // yahan par (create-checkout-session mein already enforce ho chuka hoga).
+    const result = await validateCoupon(db, couponCode, userId, subtotal);
+    if (result.valid) {
+      appliedCoupon = result.coupon;
+      couponDiscount = result.discount;
+    }
+    // Agar webhook tak aate aate coupon invalid ho gaya (expire/limit khatam),
+    // discount silently 0 rehta hai — order phir bhi place hota hai, taake
+    // customer ka paisa Stripe pe already le liya gaya ho to order na atke.
+  } else if (settings.is_enabled && userRow && Number(redeemPoints) > 0) {
+    const requested = Math.min(Number(redeemPoints), currentBalance);
+    const maxDiscount = (subtotal * Number(settings.max_redeem_percent)) / 100;
+    let discount = requested / Number(settings.redeem_rate);
+    discount = Math.min(discount, maxDiscount, subtotal);
+    actualRedeemed = Math.floor(discount * Number(settings.redeem_rate));
+    loyaltyDiscount = actualRedeemed / Number(settings.redeem_rate);
+  }
+
+  const discountAmount = loyaltyDiscount; // kept for backwards-compat column meaning: loyalty discount
+  const total = Math.max(0, subtotal + shippingCost - discountAmount - couponDiscount);
   const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+  const pointsEarned = settings.is_enabled
+    ? Math.floor(Math.max(0, subtotal - discountAmount - couponDiscount) * Number(settings.earn_rate))
+    : 0;
+
   const orderInsert = await db.prepare(`
-    INSERT INTO orders (order_number, user_id, subtotal, shipping, total, status, payment_method, stripe_session_id)
-    VALUES (?, ?, ?, ?, ?, 'paid', ?, ?)
-  `).bind(orderNumber, String(userId), subtotal, shippingCost, total, paymentMethod || "card", stripeSessionId || null).run();
+    INSERT INTO orders (order_number, user_id, subtotal, shipping, total, status, payment_method, stripe_session_id, discount_amount, points_redeemed, points_earned, coupon_code, coupon_discount)
+    VALUES (?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    orderNumber, String(userId), subtotal, shippingCost, total,
+    paymentMethod || "card", stripeSessionId || null,
+    discountAmount, actualRedeemed, pointsEarned,
+    appliedCoupon ? appliedCoupon.code : null, couponDiscount
+  ).run();
 
   const orderId = orderInsert.meta.last_row_id;
 
@@ -57,16 +183,62 @@ async function createOrderFromCart(db, userId, paymentMethod, stripeSessionId) {
   );
 
   const deleteCartStatement = db.prepare(`DELETE FROM cart WHERE user_id = ?`).bind(String(userId));
+  const batchStatements = [...itemStatements, deleteCartStatement];
 
-  await db.batch([...itemStatements, deleteCartStatement]);
+  if (appliedCoupon && couponDiscount > 0) {
+    batchStatements.push(
+      db.prepare(`
+        INSERT INTO coupon_usages (coupon_id, user_id, order_id, discount_amount)
+        VALUES (?, ?, ?, ?)
+      `).bind(appliedCoupon.id, String(userId), orderId, couponDiscount)
+    );
+    batchStatements.push(
+      db.prepare('UPDATE coupons SET used_count = used_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(appliedCoupon.id)
+    );
+  }
 
-  return { id: orderId, orderNumber, subtotal, shipping: shippingCost, total, itemsCount: cartItems.length };
+  if (userRow) {
+    const netChange = pointsEarned - actualRedeemed;
+    const newBalance = currentBalance + netChange;
+
+    batchStatements.push(
+      db.prepare('UPDATE users SET loyalty_points = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(newBalance, userRow.id)
+    );
+
+    if (actualRedeemed > 0) {
+      batchStatements.push(
+        db.prepare(`
+          INSERT INTO loyalty_transactions (user_id, order_id, type, points, balance_after, note)
+          VALUES (?, ?, 'redeem', ?, ?, ?)
+        `).bind(userRow.id, orderId, -actualRedeemed, currentBalance - actualRedeemed, `Redeemed at checkout — order ${orderNumber}`)
+      );
+    }
+    if (pointsEarned > 0) {
+      batchStatements.push(
+        db.prepare(`
+          INSERT INTO loyalty_transactions (user_id, order_id, type, points, balance_after, note)
+          VALUES (?, ?, 'earn', ?, ?, ?)
+        `).bind(userRow.id, orderId, pointsEarned, newBalance, `Earned from order ${orderNumber}`)
+      );
+    }
+  }
+
+  await db.batch(batchStatements);
+
+  return {
+    id: orderId, orderNumber, subtotal, shipping: shippingCost,
+    discount: discountAmount, total, pointsEarned, pointsRedeemed: actualRedeemed,
+    couponCode: appliedCoupon ? appliedCoupon.code : null, couponDiscount,
+    itemsCount: cartItems.length,
+  };
 }
+
 app.get('/', (c) => c.text('Cart Worker is live!'));
 
-// ---- CART ROUTES ----
+// ---- CART ROUTES (unchanged) ----
 
-// 1. ADD / UPDATE CART ITEM ROUTE
 app.post('/cart/add', async (c) => {
   try {
     const { userId, productId, quantity, name, price, image, dealId, dealName, originalPrice } = await c.req.json();
@@ -76,9 +248,6 @@ app.post('/cart/add', async (c) => {
     const qty = Number(quantity) !== 0 && Number.isFinite(Number(quantity)) ? Number(quantity) : 1;
     const productPrice = Number(price) || 0;
     const productImage = image || "";
-    // "" (not null) means "no deal" — deal_id has to be a real, comparable
-    // value for the UNIQUE(user_id, product_id, deal_id) constraint below
-    // to actually dedupe/merge repeat adds; NULL never equals NULL in SQLite.
     const finalDealId = dealId !== undefined && dealId !== null && dealId !== "" ? String(dealId) : "";
     const finalDealName = dealName ?? null;
     const finalOriginalPrice =
@@ -117,7 +286,6 @@ app.post('/cart/add', async (c) => {
   }
 });
 
-// 2. GET ALL CART ITEMS ROUTE
 app.get('/cart', async (c) => {
   try {
     const userId = c.req.query('userId');
@@ -133,12 +301,6 @@ app.get('/cart', async (c) => {
   }
 });
 
-// 3. REMOVE ITEM ROUTE
-// FIX: userId/productId ko String() se bind nahi kiya ja raha tha, jabke
-// /cart/add hamesha String(userId) store karta hai. Number vs string
-// mismatch ki wajah se DELETE aur uske baad wali SELECT dono hi kisi row
-// ko match nahi kar pati thi - isliye hamesha items: [] wapis aata tha,
-// chahe baaki products DB mein mojood hi kyun na hon.
 app.delete('/cart/remove', async (c) => {
   try {
     const { userId, productId, dealId } = await c.req.json();
@@ -147,13 +309,11 @@ app.delete('/cart/remove', async (c) => {
     }
     const db = c.env.DB;
     if (dealId !== undefined) {
-      // Caller knows exactly which line (deal or normal) to remove.
       const finalDealId = dealId !== null && dealId !== "" ? String(dealId) : "";
       await db.prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ? AND deal_id = ?")
         .bind(String(userId), String(productId), finalDealId)
         .run();
     } else {
-      // Backward-compat: no dealId passed, remove every line for this product.
       await db.prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ?")
         .bind(String(userId), String(productId))
         .run();
@@ -167,7 +327,7 @@ app.delete('/cart/remove', async (c) => {
     return c.json({ success: false, error: error.message }, 500);
   }
 });
-// 4. GET CART COUNT ROUTE
+
 app.get('/cart/count', async (c) => {
   try {
     const userId = c.req.query('userId');
@@ -182,12 +342,76 @@ app.get('/cart/count', async (c) => {
   }
 });
 
+// ---- LOYALTY: current balance + settings (checkout page ke liye) ----
+
+app.get('/loyalty/balance', async (c) => {
+  try {
+    const userId = c.req.query('userId');
+    if (!userId) return c.json({ success: false, error: "userId query parameter zaroori hai!" }, 400);
+    const db = c.env.DB;
+
+    const settings = await getLoyaltySettings(db);
+    const userRow = await getUserRowByPublicId(db, userId);
+
+    return c.json({
+      success: true,
+      points: userRow ? Number(userRow.loyalty_points) || 0 : 0,
+      settings: {
+        earn_rate: Number(settings.earn_rate),
+        redeem_rate: Number(settings.redeem_rate),
+        min_redeem_points: Number(settings.min_redeem_points),
+        max_redeem_percent: Number(settings.max_redeem_percent),
+        is_enabled: !!settings.is_enabled,
+      },
+    });
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// ---- COUPON: preview/validate for the "Apply" button on cart page ----
+
+app.post('/coupon/validate', async (c) => {
+  try {
+    const { userId, code } = await c.req.json();
+    if (!userId) return c.json({ success: false, error: "userId zaroori hai!" }, 400);
+    if (!code || !String(code).trim()) return c.json({ success: false, error: "Coupon code likhein." }, 400);
+
+    const db = c.env.DB;
+    const { results: cartItems } = await db.prepare(`
+      SELECT price, quantity FROM cart WHERE user_id = ?
+    `).bind(String(userId)).all();
+
+    const subtotal = (cartItems || []).reduce(
+      (sum, item) => sum + Number(item.price) * Number(item.quantity), 0
+    );
+
+    if (subtotal <= 0) {
+      return c.json({ success: false, error: "Cart khali hai." }, 400);
+    }
+
+    const result = await validateCoupon(db, code, userId, subtotal);
+    if (!result.valid) {
+      return c.json({ success: false, error: result.error }, 400);
+    }
+
+    return c.json({
+      success: true,
+      code: result.coupon.code,
+      description: result.coupon.description || null,
+      discount: result.discount,
+    });
+  } catch (error) {
+    console.error("Error in /coupon/validate:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
 // ---- STRIPE CHECKOUT ----
 
-// Step 1: Stripe Checkout Session banayein aur uska URL frontend ko de dein
 app.post('/create-checkout-session', async (c) => {
   try {
-    const { userId, successUrl, cancelUrl } = await c.req.json();
+    const { userId, successUrl, cancelUrl, redeemPoints, couponCode } = await c.req.json();
     if (!userId) return c.json({ success: false, error: "userId zaroori hai!" }, 400);
 
     const db = c.env.DB;
@@ -199,6 +423,51 @@ app.post('/create-checkout-session', async (c) => {
       return c.json({ success: false, error: "Cart khali hai, checkout nahi ho sakta." }, 400);
     }
 
+    const subtotal = cartItems.reduce(
+      (sum, item) => sum + Number(item.price) * Number(item.quantity), 0
+    );
+
+    const requestedPoints = Number(redeemPoints) || 0;
+
+    // Coupon aur loyalty points ek sath redeem nahi ho sakte.
+    if (couponCode && requestedPoints > 0) {
+      return c.json({ success: false, error: "Ek waqt mein sirf coupon ya points, dono nahi." }, 400);
+    }
+
+    let discountAmount = 0;
+    let actualRedeemed = 0;
+    let validatedCouponCode = null;
+    let couponDiscount = 0;
+
+    if (couponCode) {
+      const result = await validateCoupon(db, couponCode, userId, subtotal);
+      if (!result.valid) {
+        return c.json({ success: false, error: result.error }, 400);
+      }
+      validatedCouponCode = result.coupon.code;
+      couponDiscount = result.discount;
+    } else if (requestedPoints > 0) {
+      // ---- Loyalty redemption validation (final calculation webhook par dobara hoti hai) ----
+      const settings = await getLoyaltySettings(db);
+      const userRow = await getUserRowByPublicId(db, userId);
+
+      if (!settings.is_enabled) {
+        return c.json({ success: false, error: "Loyalty program filhal band hai." }, 400);
+      }
+      const currentBalance = userRow ? Number(userRow.loyalty_points) || 0 : 0;
+      if (requestedPoints > currentBalance) {
+        return c.json({ success: false, error: "Aap ke paas itne points nahi hain." }, 400);
+      }
+      if (requestedPoints < Number(settings.min_redeem_points)) {
+        return c.json({ success: false, error: `Redeem karne k liye kam se kam ${settings.min_redeem_points} points chahiye.` }, 400);
+      }
+      const maxDiscount = (subtotal * Number(settings.max_redeem_percent)) / 100;
+      discountAmount = Math.min(requestedPoints / Number(settings.redeem_rate), maxDiscount, subtotal);
+      actualRedeemed = Math.floor(discountAmount * Number(settings.redeem_rate));
+      discountAmount = actualRedeemed / Number(settings.redeem_rate);
+    }
+
+    const totalDiscount = discountAmount + couponDiscount;
     const stripe = getStripe(c.env);
 
     const line_items = cartItems.map((item) => ({
@@ -222,23 +491,50 @@ app.post('/create-checkout-session', async (c) => {
       quantity: 1,
     });
 
+    // Fixed-amount discount ek ad-hoc Stripe coupon se apply hota hai —
+    // Checkout Session line items negative amount support nahi karte.
+    let discounts;
+    if (totalDiscount > 0) {
+      const stripeCoupon = await stripe.coupons.create({
+        amount_off: Math.round(totalDiscount * 100),
+        currency: 'usd',
+        duration: 'once',
+        name: validatedCouponCode ? `Coupon: ${validatedCouponCode}` : 'Loyalty points redeemed',
+      });
+      discounts = [{ coupon: stripeCoupon.id }];
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
       line_items,
+      ...(discounts ? { discounts } : {}),
       success_url: successUrl || `${c.env.FRONTEND_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancelUrl || `${c.env.FRONTEND_URL}/cart`,
-      metadata: { userId: String(userId) },
+      // redeemPoints/couponCode yahin metadata mein lock ho jate hain — webhook
+      // inhi values ko use karega, session create k baad user inhe badal nahi sakta.
+      metadata: {
+        userId: String(userId),
+        redeemPoints: String(actualRedeemed),
+        couponCode: validatedCouponCode || '',
+      },
     });
 
-    return c.json({ success: true, url: session.url, sessionId: session.id });
+    return c.json({
+      success: true,
+      url: session.url,
+      sessionId: session.id,
+      pointsRedeemed: actualRedeemed,
+      discountAmount,
+      couponCode: validatedCouponCode,
+      couponDiscount,
+    });
   } catch (error) {
     console.error("Error in /create-checkout-session:", error);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
 
-// Step 2: Stripe yahan payment success par call karta hai (server-to-server)
 app.post('/webhook/stripe', async (c) => {
   const sig = c.req.header('stripe-signature');
   const body = await c.req.text();
@@ -256,6 +552,8 @@ app.post('/webhook/stripe', async (c) => {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const userId = session.metadata?.userId;
+    const redeemPoints = Number(session.metadata?.redeemPoints) || 0;
+    const couponCode = session.metadata?.couponCode || null;
 
     if (userId) {
       const db = c.env.DB;
@@ -264,7 +562,7 @@ app.post('/webhook/stripe', async (c) => {
       ).bind(session.id).first();
 
       if (!existing) {
-        await createOrderFromCart(db, userId, 'card', session.id);
+        await createOrderFromCart(db, userId, 'card', session.id, redeemPoints, couponCode);
       }
     }
   }
@@ -272,7 +570,6 @@ app.post('/webhook/stripe', async (c) => {
   return c.json({ received: true });
 });
 
-// Step 3: Frontend ka success page is se poll karega ke order ban gaya ya nahi
 app.get('/order/by-session/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId');
   const db = c.env.DB;

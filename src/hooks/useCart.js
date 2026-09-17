@@ -3,6 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 // Cart Worker Service URL
 const API_BASE_URL = "https://cart-worker-service.adeebibrahim01.workers.dev";
 
+// Stable fallback references — inline `{ items: [], ... }` defaults har render
+// pe NAYA object banate hain jo infinite re-render loop ka baais banta hai.
+// Module-level constant hamesha wahi ek reference rehta hai.
+const EMPTY_CART = { items: [], totalCount: 0 };
+const EMPTY_LOYALTY = { points: 0, settings: null };
+
 export function useCart(userId) {
   const queryClient = useQueryClient();
   const queryKey = ["cart", userId];
@@ -13,13 +19,13 @@ export function useCart(userId) {
   |--------------------------------------------------------------------------
   */
   const {
-    data = { items: [], totalCount: 0 },
+    data = EMPTY_CART,
     isLoading,
     refetch,
   } = useQuery({
     queryKey,
     queryFn: async () => {
-      if (!userId) return { items: [], totalCount: 0 };
+      if (!userId) return EMPTY_CART;
 
       const response = await fetch(
         `${API_BASE_URL}/cart?userId=${encodeURIComponent(userId)}&_t=${Date.now()}`,
@@ -81,7 +87,6 @@ export function useCart(userId) {
       const productPrice = product?.price !== undefined && product?.price !== null ? Number(product.price) : 0;
       const productImage = product?.image || product?.img || product?.thumbnail || "";
 
-      // NEW — deal info, agar is add ka source koi deal hai
       const dealId = product?.dealId ?? null;
       const dealName = product?.dealName ?? null;
       const originalPrice =
@@ -98,9 +103,9 @@ export function useCart(userId) {
         name: productName,
         price: productPrice,
         image: productImage,
-        dealId,          // NEW
-        dealName,         // NEW
-        originalPrice,    // NEW
+        dealId,
+        dealName,
+        originalPrice,
       };
 
       const response = await fetch(`${API_BASE_URL}/cart/add`, {
@@ -123,7 +128,6 @@ export function useCart(userId) {
       const productPrice = product?.price !== undefined && product?.price !== null ? Number(product.price) : 0;
       const productImage = product?.image || product?.img || product?.thumbnail || "";
 
-      // NEW
       const dealId = product?.dealId ?? null;
       const dealName = product?.dealName ?? null;
       const originalPrice =
@@ -133,7 +137,7 @@ export function useCart(userId) {
 
       const delta = resolveDelta(quantity);
 
-      queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
+      queryClient.setQueryData(queryKey, (old = EMPTY_CART) => {
         const items = [...(old.items || [])];
         const existingIndex = items.findIndex((item) => isSameLine(item, productId, dealId));
 
@@ -148,9 +152,9 @@ export function useCart(userId) {
             name: productName,
             price: productPrice,
             image: productImage,
-            dealId,          // NEW
-            dealName,         // NEW
-            originalPrice,    // NEW
+            dealId,
+            dealName,
+            originalPrice,
           });
         }
 
@@ -181,6 +185,28 @@ export function useCart(userId) {
 
   /*
   |--------------------------------------------------------------------------
+  | Loyalty balance query
+  |--------------------------------------------------------------------------
+  */
+  const {
+    data: loyalty = EMPTY_LOYALTY,
+    isLoading: loyaltyLoading,
+    refetch: refetchLoyalty,
+  } = useQuery({
+    queryKey: ["loyalty", userId],
+    queryFn: async () => {
+      if (!userId) return EMPTY_LOYALTY;
+      const response = await fetch(`${API_BASE_URL}/loyalty/balance?userId=${encodeURIComponent(userId)}`);
+      const resData = await response.json();
+      if (!response.ok || !resData.success) throw new Error(resData.error || "Failed to fetch loyalty balance.");
+      return { points: resData.points, settings: resData.settings };
+    },
+    enabled: !!userId,
+    staleTime: 1000 * 30,
+  });
+
+  /*
+  |--------------------------------------------------------------------------
   | Remove Item Mutation
   |--------------------------------------------------------------------------
   */
@@ -202,7 +228,7 @@ export function useCart(userId) {
       await queryClient.cancelQueries({ queryKey });
       const previousCart = queryClient.getQueryData(queryKey);
 
-      queryClient.setQueryData(queryKey, (old = { items: [], totalCount: 0 }) => {
+      queryClient.setQueryData(queryKey, (old = EMPTY_CART) => {
         const items = (old.items || []).filter((item) => !isSameLine(item, productId, dealId));
 
         const totalQuantity = items.reduce(
@@ -240,12 +266,14 @@ export function useCart(userId) {
   |--------------------------------------------------------------------------
   */
   const createCheckoutSessionMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ redeemPoints = 0, couponCode = null } = {}) => {
       const response = await fetch(`${API_BASE_URL}/create-checkout-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
+          redeemPoints,
+          couponCode: couponCode || undefined,
           successUrl: `${window.location.origin}/order-success?session_id={CHECKOUT_SESSION_ID}`,
           cancelUrl: `${window.location.origin}/cart`,
         }),
@@ -259,9 +287,28 @@ export function useCart(userId) {
     },
   });
 
+  /*
+  |--------------------------------------------------------------------------
+  | Coupon validation — preview discount for the "Apply" button on cart page
+  |--------------------------------------------------------------------------
+  */
+  const validateCouponMutation = useMutation({
+    mutationFn: async (code) => {
+      const response = await fetch(`${API_BASE_URL}/coupon/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, code }),
+      });
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || "Coupon apply nahi ho saka.");
+      }
+      return resData; // { success, code, description, discount }
+    },
+  });
+
   // ---- Plain async wrapper functions (return se PEHLE define hone zaroori hain) ----
 
-  // quantity: pass a positive number to add, a negative number to decrease.
   const addToCart = async (productId, quantity = 1, product = {}) => {
     if (!userId || !productId) return false;
 
@@ -273,8 +320,6 @@ export function useCart(userId) {
     }
   };
 
-  // Pass dealId when removing a deal line so only that specific line goes
-  // away — leave it undefined only for old call sites that predate deals.
   const removeFromCart = async (productId, dealId) => {
     if (!userId || !productId) return false;
     try {
@@ -287,18 +332,29 @@ export function useCart(userId) {
 
   // Isse call karne par user Stripe ki page par redirect ho jayega.
   // Order webhook se banega jab payment successful ho jayegi.
-  const startCheckout = async () => {
+  // couponCode aur redeemPoints mutually exclusive hain — jab coupon apply
+  // ho, points ki value ignore ho jati hai (aur vice versa).
+  const startCheckout = async (redeemPoints = 0, couponCode = null) => {
     if (!userId) return { success: false, error: "Please log in first." };
     try {
-      const result = await createCheckoutSessionMutation.mutateAsync();
-      window.location.href = result.url; // Stripe checkout page
+      const result = await createCheckoutSessionMutation.mutateAsync({ redeemPoints, couponCode });
+      window.location.href = result.url;
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
   };
 
-  // ---- Ek hi return statement ----
+  const validateCoupon = async (code) => {
+    if (!userId) return { success: false, error: "Please log in first." };
+    try {
+      const result = await validateCouponMutation.mutateAsync(code);
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
   return {
     cartCount: data.totalCount,
     cartItems: data.items,
@@ -309,5 +365,10 @@ export function useCart(userId) {
     startCheckout,
     isStartingCheckout: createCheckoutSessionMutation.isPending,
     isMutating: addToCartMutation.isPending || removeFromCartMutation.isPending,
+    loyalty,
+    loyaltyLoading,
+    refetchLoyalty,
+    validateCoupon,
+    isValidatingCoupon: validateCouponMutation.isPending,
   };
 }

@@ -169,9 +169,8 @@ function ProductSection({
   return (
     <section
       ref={ref}
-      className={`px-5 py-20 transition-opacity duration-700 ease-out sm:px-8 md:px-12 lg:px-16 ${
-        visible ? "opacity-100" : "opacity-0"
-      }`}
+      className={`px-5 py-20 transition-opacity duration-700 ease-out sm:px-8 md:px-12 lg:px-16 ${visible ? "opacity-100" : "opacity-0"
+        }`}
     >
       <div className="mx-auto max-w-7xl">
         <div className="mb-10 flex items-end justify-between">
@@ -260,38 +259,6 @@ export default function Home({ userId: userIdProp }) {
   const featuredQuery = useProductCollection("featured");
   const bestsellerQuery = useProductCollection("bestseller");
 
-          setBestSellerProducts(
-            bestsellerRows.map(normalizeProduct)
-          );
-        }
-      )
-      .catch((err) => {
-        if (cancelled) return;
-
-        if (err.name === "AbortError") return;
-
-        console.error(
-          "Home products fetch error:",
-          err
-        );
-
-        setLoadError(
-          err.message ||
-          "Failed to load products."
-        );
-      })
-      .finally(() => {
-        if (cancelled) return;
-
-        setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, []);
-
   // ==========================================
   // CART HELPERS
   // ==========================================
@@ -305,8 +272,7 @@ export default function Home({ userId: userIdProp }) {
         String(item.product_id || item.productId) === String(productId) &&
         !(item.deal_id || item.dealId)
     );
-    return (productId) => ids.has(String(productId));
-  }, [cartItems]);
+  };
 
   const handleAddToCart = async (product) => {
     if (!product?.id) return;
