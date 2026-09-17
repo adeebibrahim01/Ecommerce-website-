@@ -66,7 +66,7 @@ function OrderList({ onSelect }) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-2xl border border-[#D1B79E] bg-[#F7F3EC] py-16 text-center">
         <Package size={28} className="text-[#977150]" />
-        <p className="text-sm text-[#432817]">Aapka koi order nahi mila.</p>
+       <p className="text-sm text-[#432817]">No orders found.</p>
       </div>
     );
   }

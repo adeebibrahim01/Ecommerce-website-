@@ -301,7 +301,7 @@ export function useCart(userId) {
       });
       const resData = await response.json();
       if (!response.ok || !resData.success) {
-        throw new Error(resData.error || "Coupon apply nahi ho saka.");
+      throw new Error(resData.error || "Unable to apply the coupon.");
       }
       return resData; // { success, code, description, discount }
     },

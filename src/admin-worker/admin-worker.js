@@ -461,10 +461,10 @@ app.put('/admin/loyalty/settings', requireAdmin, async (c) => {
         if ([earn_rate, redeem_rate, min_redeem_points, max_redeem_percent].some(
             (v) => v === undefined || v === null || Number(v) < 0 || Number.isNaN(Number(v))
         )) {
-            return c.json({ success: false, message: 'Sab rates/thresholds valid, non-negative numbers hone chahiye.' }, 400);
+            return c.json({ success: false, message: 'All rates and thresholds must be valid, non-negative numbers.' }, 400);
         }
         if (Number(max_redeem_percent) > 100) {
-            return c.json({ success: false, message: 'Max redeem percent 100 sa zyada nahi ho sakta.' }, 400);
+            return c.json({ success: false, message: 'The maximum redeem percentage cannot exceed 100%.' }, 400);
         }
 
         await c.env.DB.prepare(
@@ -483,10 +483,10 @@ app.put('/admin/loyalty/settings', requireAdmin, async (c) => {
         ).run();
 
         const settings = await c.env.DB.prepare('SELECT * FROM loyalty_settings WHERE id = 1').first();
-        return c.json({ success: true, message: 'Loyalty settings update ho gayi.', settings });
+        return c.json({ success: true, message: 'Loyalty settings updated successfully.', settings });
     } catch (error) {
         console.error('Loyalty settings update error:', error);
-        return c.json({ success: false, message: 'Settings update nahi ho saki.' }, 500);
+        return c.json({ success: false, message: 'Failed to update loyalty settings.' }, 500);
     }
 });
 
@@ -499,19 +499,19 @@ app.post('/admin/users/:id/loyalty/adjust', requireAdmin, async (c) => {
 
         const delta = Number(points);
         if (!Number.isFinite(delta) || delta === 0) {
-            return c.json({ success: false, message: 'Points ek non-zero number honi chahiye.' }, 400);
+            return c.json({ success: false, message: 'Points must be a non-zero number.' }, 400);
         }
         if (!note || !note.trim()) {
-            return c.json({ success: false, message: 'Manual adjustment k liye reason/note zaroori hai.' }, 400);
+            return c.json({ success: false, message: 'A reason or note is required for manual adjustment.' }, 400);
         }
 
         const user = await c.env.DB.prepare('SELECT id, loyalty_points FROM users WHERE id = ?').bind(targetId).first();
-        if (!user) return c.json({ success: false, message: 'User nahi mila.' }, 404);
+        if (!user) return c.json({ success: false, message: 'User not found.' }, 404);
 
         const currentBalance = Number(user.loyalty_points) || 0;
         const newBalance = currentBalance + delta;
         if (newBalance < 0) {
-            return c.json({ success: false, message: `User ke current balance (${currentBalance}) sa zyada deduct nahi ho sakta.` }, 400);
+            return c.json({ success: false, message: `You cannot deduct more than the user's current balance (${currentBalance}).` }, 400);
         }
 
         await c.env.DB.batch([
@@ -523,10 +523,10 @@ app.post('/admin/users/:id/loyalty/adjust', requireAdmin, async (c) => {
             ).bind(targetId, delta, newBalance, note.trim(), adminUserId),
         ]);
 
-        return c.json({ success: true, message: 'Points adjust ho gaye.', balance: newBalance });
+        return c.json({ success: true, message: 'Points adjusted successfully.', balance: newBalance });
     } catch (error) {
         console.error('Loyalty adjust error:', error);
-        return c.json({ success: false, message: 'Points adjust nahi ho sakay.' }, 500);
+        return c.json({ success: false, message: 'Failed to adjust points.' }, 500);
     }
 });
 
@@ -558,7 +558,7 @@ app.get('/admin/loyalty/transactions', requireAdmin, async (c) => {
         return c.json({ success: true, transactions: results || [], total: totalRow?.count || 0, page, limit });
     } catch (error) {
         console.error('Loyalty transactions list error:', error);
-        return c.json({ success: false, message: 'Transactions load nahi ho sakin.' }, 500);
+        return c.json({ success: false, message: 'Failed to load transactions.' }, 500);
     }
 });
 
@@ -664,16 +664,16 @@ app.post('/admin/coupons', requireAdmin, async (c) => {
         } = body;
 
         if (!code || !code.trim()) {
-            return c.json({ success: false, message: 'Coupon code zaroori hai.' }, 400);
+            return c.json({ success: false, message: 'Coupon code is required.' }, 400);
         }
         if (value === undefined || value === null || isNaN(Number(value)) || Number(value) <= 0) {
-            return c.json({ success: false, message: 'Coupon value zaroori hai aur 0 sa zyada honi chahiye.' }, 400);
+            return c.json({ success: false, message: 'Coupon value is required and must be greater than 0.' }, 400);
         }
         if (!['%', '$'].includes(type)) {
-            return c.json({ success: false, message: "Coupon type '%' ya '$' hona chahiye." }, 400);
+            return c.json({ success: false, message: "Coupon type must be '%' or '$'." }, 400);
         }
         if (type === '%' && Number(value) > 100) {
-            return c.json({ success: false, message: 'Percentage discount 100 sa zyada nahi ho sakta.' }, 400);
+            return c.json({ success: false, message: 'Percentage discount cannot exceed 100%.' }, 400);
         }
 
         let result;
@@ -698,7 +698,7 @@ app.post('/admin/coupons', requireAdmin, async (c) => {
             ).run();
         } catch (dbError) {
             if (String(dbError.message).includes('UNIQUE')) {
-                return c.json({ success: false, message: 'Ye coupon code pehle se maujood hai.' }, 400);
+                return c.json({ success: false, message: 'This coupon code already exists.' }, 400);
             }
             throw dbError;
         }
@@ -719,10 +719,10 @@ app.patch('/admin/coupons/:id', requireAdmin, async (c) => {
         if (!existing) return c.json({ success: false, message: 'Coupon not found.' }, 404);
 
         if (body.type && !['%', '$'].includes(body.type)) {
-            return c.json({ success: false, message: "Coupon type '%' ya '$' hona chahiye." }, 400);
+            return c.json({ success: false, message: "Coupon type must be '%' or '$'." }, 400);
         }
         if (body.value !== undefined && (isNaN(Number(body.value)) || Number(body.value) <= 0)) {
-            return c.json({ success: false, message: 'Coupon value 0 sa zyada honi chahiye.' }, 400);
+            return c.json({ success: false, message: 'Coupon value must be greater than 0.' }, 400);
         }
 
         const fields = [
@@ -755,7 +755,7 @@ app.patch('/admin/coupons/:id', requireAdmin, async (c) => {
                     .run();
             } catch (dbError) {
                 if (String(dbError.message).includes('UNIQUE')) {
-                    return c.json({ success: false, message: 'Ye coupon code pehle se maujood hai.' }, 400);
+                    return c.json({ success: false, message: 'This coupon code already exists.' }, 400);
                 }
                 throw dbError;
             }

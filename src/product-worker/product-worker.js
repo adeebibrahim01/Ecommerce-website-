@@ -372,9 +372,14 @@ app.patch('/admin/brands/:id', requireAdmin, async (c) => {
         if (!body.name || !body.name.trim()) {
             return c.json({ success: false, message: 'Brand name zaroori hai.' }, 400);
         }
+
+        // FIX: body.logo agar undefined ho (field bheji hi nahi) to D1 ka
+        // .bind() crash ho jata tha — D1 sirf null accept karta hai, undefined nahi.
+        const logoValue = body.logo !== undefined ? body.logo : null;
+
         await c.env.DB.prepare(
             'UPDATE brands SET name = ?, slug = ?, logo = COALESCE(?, logo) WHERE id = ?'
-        ).bind(body.name.trim(), slugify(body.name), body.logo, id).run();
+        ).bind(body.name.trim(), slugify(body.name), logoValue, id).run();
         return c.json({ success: true, message: 'Brand updated.' });
     } catch (error) {
         if (String(error.message).includes('UNIQUE')) {

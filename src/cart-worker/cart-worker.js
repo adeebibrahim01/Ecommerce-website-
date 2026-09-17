@@ -64,35 +64,35 @@ function computeCouponDiscount(coupon, subtotal) {
 async function validateCoupon(db, code, userId, subtotal) {
   const coupon = await findCouponByCode(db, code);
   if (!coupon) {
-    return { valid: false, error: 'Ye coupon code exist nahi karta.' };
+    return { valid: false, error: 'This coupon code does not exist.' };
   }
   if (coupon.status !== 'active') {
-    return { valid: false, error: 'Ye coupon filhal active nahi hai.' };
+    return { valid: false, error: 'This coupon is currently inactive.' };
   }
 
   const now = new Date();
   if (coupon.starts_at && now < new Date(coupon.starts_at)) {
-    return { valid: false, error: 'Ye coupon abhi shuru nahi hua.' };
+    return { valid: false, error: 'This coupon has not started yet.' };
   }
   if (coupon.expires_at && now > new Date(coupon.expires_at)) {
-    return { valid: false, error: 'Ye coupon expire ho chuka hai.' };
+    return { valid: false, error: 'This coupon has expired.' };
   }
 
   if (Number(coupon.min_order_amount) > 0 && subtotal < Number(coupon.min_order_amount)) {
     return {
       valid: false,
-      error: `Is coupon k liye kam se kam $${Number(coupon.min_order_amount).toFixed(2)} ka order chahiye.`,
+      error: `A minimum order of $${Number(coupon.min_order_amount).toFixed(2)} is required for this coupon.`,
     };
   }
 
   if (coupon.usage_limit !== null && coupon.usage_limit !== undefined && Number(coupon.used_count) >= Number(coupon.usage_limit)) {
-    return { valid: false, error: 'Ye coupon apni usage limit tak pohanch chuka hai.' };
+    return { valid: false, error: 'This coupon has reached its usage limit.' };
   }
 
   if (coupon.per_user_limit !== null && coupon.per_user_limit !== undefined) {
     const usedByUser = await countUserCouponUsage(db, coupon.id, userId);
     if (usedByUser >= Number(coupon.per_user_limit)) {
-      return { valid: false, error: 'Aap ye coupon pehle hi zyada se zyada dafa use kar chuke hain.' };
+      return { valid: false, error: 'You have already reached the maximum usage limit for this coupon.' };
     }
   }
 
@@ -289,7 +289,7 @@ app.post('/cart/add', async (c) => {
 app.get('/cart', async (c) => {
   try {
     const userId = c.req.query('userId');
-    if (!userId) return c.json({ success: false, error: "userId query parameter zaroori hai!" }, 400);
+    if (!userId) return c.json({ success: false, error: "The userId query parameter is required!" }, 400);
     const db = c.env.DB;
     const { results } = await db.prepare(`
       SELECT product_id, quantity, user_id, name, price, image, deal_id, deal_name, original_price
@@ -305,7 +305,7 @@ app.delete('/cart/remove', async (c) => {
   try {
     const { userId, productId, dealId } = await c.req.json();
     if (!userId || !productId) {
-      return c.json({ success: false, error: "userId aur productId zaroori hain!" }, 400);
+      return c.json({ success: false, error: "userId and productId are required!" }, 400);
     }
     const db = c.env.DB;
     if (dealId !== undefined) {
@@ -322,7 +322,7 @@ app.delete('/cart/remove', async (c) => {
       SELECT product_id, quantity, user_id, name, price, image, deal_id, deal_name, original_price
       FROM cart WHERE user_id = ?
     `).bind(String(userId)).all();
-    return c.json({ success: true, message: "Item cart se remove ho gaya!", items: results || [] });
+    return c.json({ success: true, message: "Item has been removed from the cart!", items: results || [] });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -331,7 +331,7 @@ app.delete('/cart/remove', async (c) => {
 app.get('/cart/count', async (c) => {
   try {
     const userId = c.req.query('userId');
-    if (!userId) return c.json({ success: false, error: "userId query parameter zaroori hai!" }, 400);
+    if (!userId) return c.json({ success: false, error: "The userId query parameter is required!" }, 400);
     const db = c.env.DB;
     const result = await db.prepare(
       "SELECT SUM(quantity) as totalCount FROM cart WHERE user_id = ?"
@@ -347,7 +347,7 @@ app.get('/cart/count', async (c) => {
 app.get('/loyalty/balance', async (c) => {
   try {
     const userId = c.req.query('userId');
-    if (!userId) return c.json({ success: false, error: "userId query parameter zaroori hai!" }, 400);
+    if (!userId) return c.json({ success: false, error: "The userId query parameter is required!" }, 400);
     const db = c.env.DB;
 
     const settings = await getLoyaltySettings(db);
@@ -374,8 +374,8 @@ app.get('/loyalty/balance', async (c) => {
 app.post('/coupon/validate', async (c) => {
   try {
     const { userId, code } = await c.req.json();
-    if (!userId) return c.json({ success: false, error: "userId zaroori hai!" }, 400);
-    if (!code || !String(code).trim()) return c.json({ success: false, error: "Coupon code likhein." }, 400);
+    if (!userId) return c.json({ success: false, error: "userId is required!" }, 400);
+    if (!code || !String(code).trim()) return c.json({ success: false, error: "Please enter a coupon code." }, 400);
 
     const db = c.env.DB;
     const { results: cartItems } = await db.prepare(`
@@ -387,7 +387,7 @@ app.post('/coupon/validate', async (c) => {
     );
 
     if (subtotal <= 0) {
-      return c.json({ success: false, error: "Cart khali hai." }, 400);
+      return c.json({ success: false, error: "Your cart is empty." }, 400);
     }
 
     const result = await validateCoupon(db, code, userId, subtotal);
@@ -412,7 +412,7 @@ app.post('/coupon/validate', async (c) => {
 app.post('/create-checkout-session', async (c) => {
   try {
     const { userId, successUrl, cancelUrl, redeemPoints, couponCode } = await c.req.json();
-    if (!userId) return c.json({ success: false, error: "userId zaroori hai!" }, 400);
+    if (!userId) return c.json({ success: false, error: "userId is required!" }, 400);
 
     const db = c.env.DB;
     const { results: cartItems } = await db.prepare(`
@@ -420,7 +420,7 @@ app.post('/create-checkout-session', async (c) => {
     `).bind(String(userId)).all();
 
     if (!cartItems || cartItems.length === 0) {
-      return c.json({ success: false, error: "Cart khali hai, checkout nahi ho sakta." }, 400);
+      return c.json({ success: false, error: "Your cart is empty. Checkout cannot proceed." }, 400);
     }
 
     const subtotal = cartItems.reduce(
@@ -431,7 +431,7 @@ app.post('/create-checkout-session', async (c) => {
 
     // Coupon aur loyalty points ek sath redeem nahi ho sakte.
     if (couponCode && requestedPoints > 0) {
-      return c.json({ success: false, error: "Ek waqt mein sirf coupon ya points, dono nahi." }, 400);
+      return c.json({ success: false, error: "You can use either a coupon or loyalty points, but not both at the same time." }, 400);
     }
 
     let discountAmount = 0;
@@ -452,14 +452,14 @@ app.post('/create-checkout-session', async (c) => {
       const userRow = await getUserRowByPublicId(db, userId);
 
       if (!settings.is_enabled) {
-        return c.json({ success: false, error: "Loyalty program filhal band hai." }, 400);
+        return c.json({ success: false, error: "The loyalty program is currently disabled." }, 400);
       }
       const currentBalance = userRow ? Number(userRow.loyalty_points) || 0 : 0;
       if (requestedPoints > currentBalance) {
-        return c.json({ success: false, error: "Aap ke paas itne points nahi hain." }, 400);
+        return c.json({ success: false, error: "You do not have enough points." }, 400);
       }
       if (requestedPoints < Number(settings.min_redeem_points)) {
-        return c.json({ success: false, error: `Redeem karne k liye kam se kam ${settings.min_redeem_points} points chahiye.` }, 400);
+        return c.json({ success: false, error: `A minimum of ${settings.min_redeem_points} points is required to redeem.` }, 400);
       }
       const maxDiscount = (subtotal * Number(settings.max_redeem_percent)) / 100;
       discountAmount = Math.min(requestedPoints / Number(settings.redeem_rate), maxDiscount, subtotal);
@@ -577,7 +577,7 @@ app.get('/order/by-session/:sessionId', async (c) => {
     `SELECT * FROM orders WHERE stripe_session_id = ?`
   ).bind(sessionId).first();
 
-  if (!order) return c.json({ success: false, error: "Order abhi confirm nahi hua." }, 404);
+  if (!order) return c.json({ success: false, error: "Your order has not been confirmed yet." }, 404);
   return c.json({ success: true, order });
 });
 

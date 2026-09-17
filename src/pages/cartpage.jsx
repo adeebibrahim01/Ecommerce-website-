@@ -443,9 +443,9 @@ export default function CartPage() {
                       </button>
                     </div>
                   ) : (
-                    <p className="mt-2 text-[10px] text-[#8A8177]">
-                      Kam se kam {loyalty.settings?.min_redeem_points} points chahiye redeem karne k liye.
-                    </p>
+                <p className="mt-2 text-[10px] text-[#8A8177]">
+  A minimum of {loyalty.settings?.min_redeem_points} points is required to redeem.
+</p>
                   )}
                 </div>
               )}
